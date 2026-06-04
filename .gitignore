@@ -1,0 +1,100 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Environment Variables
+.env
+.env.*
+
+# Python Build Files
+build/
+dist/
+*.egg-info/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# =========================
+# FastAPI Uploads & Reports
+# =========================
+backend/uploads/*
+backend/reports/*
+
+# Keep folders tracked
+!backend/uploads/.gitkeep
+!backend/reports/.gitkeep
+
+# =========================
+# MongoDB
+# =========================
+data/
+dump/
+
+# =========================
+# Node.js / React
+# =========================
+frontend/node_modules/
+
+# Build Outputs
+frontend/dist/
+frontend/build/
+
+# Package Managers
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# VS Code
+# =========================
+.vscode/
+
+# =========================
+# JetBrains IDEs
+# =========================
+.idea/
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# TypeScript
+# =========================
+*.tsbuildinfo
+
+# =========================
+# Cache
+# =========================
+.cache/
+.temp/
+tmp/
+
+# =========================
+# Misc
+# =========================
+*.sqlite3
+*.db
+# Dependencies
+node_modules/
+frontend/node_modules/
