@@ -98,3 +98,9 @@ tmp/
 # Dependencies
 node_modules/
 frontend/node_modules/
+
+# Uploaded datasets
+uploads/
+
+# Generated reports
+reports/
