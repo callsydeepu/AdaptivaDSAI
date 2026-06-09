@@ -18,6 +18,9 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from services.dataset_service import DatasetService
 from services.problem_detection_service import ProblemDetectionService
 from services.model_recommendation_service import ModelRecommendationService
+from repositories.training_repository import TrainingRepository
+from core.config import MODEL_DIR, PROCESSED_DIR
+from core.logger import logger
 
 
 class TrainingService:
@@ -30,7 +33,7 @@ class TrainingService:
             return None
 
         # 2. Load Processed Dataset
-        processed_path = os.path.join("processed", f"{dataset_id}.csv")
+        processed_path = os.path.join(PROCESSED_DIR, f"{dataset_id}.csv")
         if not os.path.exists(processed_path):
             raise FileNotFoundError("Processed dataset not found")
 
@@ -80,8 +83,9 @@ class TrainingService:
             X, y, test_size=0.2, random_state=42
         )
 
+        logger.info(f"Training models for dataset {dataset_id}. Models to train: {models_to_train}")
         model_results = []
-        trained_models_dir = "trained_models"
+        trained_models_dir = MODEL_DIR
         os.makedirs(trained_models_dir, exist_ok=True)
 
         # 6. Fit & Evaluate Models
@@ -144,9 +148,14 @@ class TrainingService:
                 best_metric_val = metric_val
                 best_model_name = m_result["model"]
 
-        return {
+        results = {
             "dataset_id": dataset_id,
             "problem_type": problem_type,
             "models": model_results,
             "best_model": best_model_name
         }
+
+        TrainingRepository.save_training_job(results)
+        logger.info(f"Model training completed for dataset {dataset_id}. Best model: {best_model_name}")
+
+        return results

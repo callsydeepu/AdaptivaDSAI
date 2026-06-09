@@ -13,6 +13,10 @@ from services.statistics_service import StatisticsService
 from services.eda_service import EDAService
 from services.problem_detection_service import ProblemDetectionService
 from services.model_recommendation_service import ModelRecommendationService
+from repositories.training_repository import TrainingRepository
+from repositories.report_repository import ReportRepository
+from core.config import REPORT_DIR
+from core.logger import logger
 
 
 class ReportService:
@@ -24,12 +28,9 @@ class ReportService:
         if dataset is None:
             return None
 
-        eval_path = os.path.join("evaluation_results", f"{dataset_id}.json")
-        if not os.path.exists(eval_path):
+        evaluation = TrainingRepository.get_evaluation_result(dataset_id)
+        if evaluation is None:
             raise FileNotFoundError("Evaluation results not found")
-
-        with open(eval_path, "r") as f:
-            evaluation = json.load(f)
 
         profiling = ProfilingService.profile_dataset(dataset_id)
         statistics = StatisticsService.get_statistics(dataset_id)
@@ -38,8 +39,9 @@ class ReportService:
         recommendation = ModelRecommendationService.recommend_models(dataset_id)
 
         # 2. Build PDF Layout
-        os.makedirs("reports", exist_ok=True)
-        report_path = f"reports/{dataset_id}_report.pdf"
+        logger.info(f"Generating PDF report for dataset {dataset_id}")
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        report_path = os.path.join(REPORT_DIR, f"{dataset_id}_report.pdf")
 
         doc = SimpleDocTemplate(
             report_path,
@@ -372,26 +374,13 @@ class ReportService:
         doc.build(story)
 
         # 3. Save Metadata
-        METADATA_FILE = "data/report_metadata.json"
-        existing_meta = []
-        if os.path.exists(METADATA_FILE):
-            try:
-                with open(METADATA_FILE, "r") as f:
-                    existing_meta = json.load(f)
-            except Exception:
-                existing_meta = []
-
         meta_entry = {
             "dataset_id": dataset_id,
             "report_path": report_path,
             "generated_at": datetime.now().isoformat()
         }
 
-        # Replace old entry if present
-        existing_meta = [item for item in existing_meta if item.get("dataset_id") != dataset_id]
-        existing_meta.append(meta_entry)
-
-        with open(METADATA_FILE, "w") as f:
-            json.dump(existing_meta, f, indent=4)
+        ReportRepository.save_report_metadata(meta_entry)
+        logger.info(f"Report generated successfully for dataset {dataset_id} at {report_path}")
 
         return meta_entry

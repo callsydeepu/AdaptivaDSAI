@@ -17,6 +17,9 @@ from sklearn.metrics import (
 )
 from services.dataset_service import DatasetService
 from services.problem_detection_service import ProblemDetectionService
+from repositories.training_repository import TrainingRepository
+from core.config import MODEL_DIR, PROCESSED_DIR
+from core.logger import logger
 
 
 class EvaluationService:
@@ -29,7 +32,7 @@ class EvaluationService:
             return None
 
         # 2. Load Processed Dataset
-        processed_path = os.path.join("processed", f"{dataset_id}.csv")
+        processed_path = os.path.join(PROCESSED_DIR, f"{dataset_id}.csv")
         if not os.path.exists(processed_path):
             raise FileNotFoundError("Processed dataset not found")
 
@@ -38,7 +41,8 @@ class EvaluationService:
             raise ValueError("Dataset empty")
 
         # 3. Scan for Trained Models
-        trained_models_dir = "trained_models"
+        logger.info(f"Starting model evaluation for dataset {dataset_id}")
+        trained_models_dir = MODEL_DIR
         if not os.path.exists(trained_models_dir):
             raise FileNotFoundError("Training results not found")
 
@@ -224,10 +228,7 @@ class EvaluationService:
         }
 
         # 9. Storage
-        results_dir = "evaluation_results"
-        os.makedirs(results_dir, exist_ok=True)
-        results_path = os.path.join(results_dir, f"{dataset_id}.json")
-        with open(results_path, "w") as f:
-            json.dump(evaluation_data, f, indent=4)
+        TrainingRepository.save_evaluation_result(evaluation_data)
+        logger.info(f"Model evaluation completed successfully for dataset {dataset_id}. Best model: {best_model}")
 
         return evaluation_data

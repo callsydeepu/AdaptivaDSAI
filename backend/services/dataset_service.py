@@ -1,17 +1,10 @@
 import os
 import uuid
-import json
 import pandas as pd
 from datetime import datetime
-
-UPLOAD_DIR = "uploads"
-METADATA_FILE = "data/metadata.json"
-
-os.makedirs("data", exist_ok=True)
-
-if not os.path.exists(METADATA_FILE):
-    with open(METADATA_FILE, "w") as f:
-        json.dump([], f)
+from repositories.dataset_repository import DatasetRepository
+from core.config import UPLOAD_DIR
+from core.logger import logger
 
 
 class DatasetService:
@@ -42,53 +35,24 @@ class DatasetService:
             "rows": len(df),
             "columns": len(df.columns), 
             "uploaded_at": datetime.now().isoformat()
-
         }
 
-        with open(METADATA_FILE, "r") as f:
-            datasets = json.load(f)
-
-        datasets.append(metadata)
-
-        with open(METADATA_FILE, "w") as f:
-            json.dump(datasets, f, indent=4)
+        DatasetRepository.save_dataset(metadata)
+        logger.info(f"Dataset uploaded successfully: {file.filename} as {filename} ({dataset_id})")
 
         return metadata
+
     @staticmethod
     def get_all_datasets():
+        return DatasetRepository.get_all_datasets()
 
-        if not os.path.exists(METADATA_FILE):
-            return []
-
-        with open(METADATA_FILE, "r") as f:
-            datasets = json.load(f)
-
-        return datasets
     @staticmethod
     def get_dataset_by_id(dataset_id):
+        return DatasetRepository.get_dataset_by_id(dataset_id)
 
-        with open(METADATA_FILE, "r") as f:
-            datasets = json.load(f)
-
-        for dataset in datasets:
-
-            if dataset["dataset_id"] == dataset_id:
-                return dataset
-
-        return None
     @staticmethod
     def delete_dataset(dataset_id):
-
-        with open(METADATA_FILE, "r") as f:
-            datasets = json.load(f)
-
-        dataset_to_delete = None
-
-        for dataset in datasets:
-
-            if dataset["dataset_id"] == dataset_id:
-                dataset_to_delete = dataset
-                break
+        dataset_to_delete = DatasetRepository.get_dataset_by_id(dataset_id)
 
         if dataset_to_delete is None:
             return False
@@ -101,26 +65,12 @@ class DatasetService:
         if os.path.exists(file_path):
             os.remove(file_path)
 
-        datasets.remove(dataset_to_delete)
-
-        with open(METADATA_FILE, "w") as f:
-            json.dump(datasets, f, indent=4)
-
-        return True
+        logger.info(f"Dataset deleted successfully: {dataset_id}")
+        return DatasetRepository.delete_dataset(dataset_id)
     
     @staticmethod
     def get_dataframe(dataset_id):
-
-        with open(METADATA_FILE, "r") as f:
-            datasets = json.load(f)
-
-        dataset = None
-
-        for item in datasets:
-
-            if item["dataset_id"] == dataset_id:
-                dataset = item
-                break
+        dataset = DatasetRepository.get_dataset_by_id(dataset_id)
 
         if dataset is None:
             return None
