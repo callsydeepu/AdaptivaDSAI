@@ -104,3 +104,8 @@ uploads/
 
 # Generated reports
 reports/
+
+# Generated ML artifacts
+backend/processed/
+backend/trained_models/
+backend/evaluation_results/
