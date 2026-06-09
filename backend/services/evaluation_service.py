@@ -25,14 +25,25 @@ from core.logger import logger
 class EvaluationService:
 
     @staticmethod
-    def evaluate_dataset(dataset_id: str):
+    def evaluate_dataset(dataset_id: str, experiment_id: str = None):
         # 1. Load Dataset Metadata
         dataset = DatasetService.get_dataset_by_id(dataset_id)
         if dataset is None:
             return None
 
-        # 2. Load Processed Dataset
-        processed_path = os.path.join(PROCESSED_DIR, f"{dataset_id}.csv")
+        # 2. Load Experiment Settings if applicable
+        target_column = None
+        split_ratio = 0.8
+        if experiment_id is not None:
+            from repositories.experiment_repository import ExperimentRepository
+            experiment = ExperimentRepository.get_experiment(experiment_id)
+            if experiment:
+                target_column = experiment.get("target_column")
+                split_ratio = experiment.get("split_ratio", 0.8)
+
+        # 3. Load Processed Dataset
+        suffix = f"_{experiment_id}" if experiment_id else ""
+        processed_path = os.path.join(PROCESSED_DIR, f"{dataset_id}{suffix}.csv")
         if not os.path.exists(processed_path):
             raise FileNotFoundError("Processed dataset not found")
 
@@ -40,43 +51,62 @@ class EvaluationService:
         if df.empty or len(df.columns) == 0 or len(df) == 0:
             raise ValueError("Dataset empty")
 
-        # 3. Scan for Trained Models
-        logger.info(f"Starting model evaluation for dataset {dataset_id}")
+        # 4. Scan for Trained Models
+        logger.info(f"Starting model evaluation for dataset {dataset_id} (experiment {experiment_id})")
         trained_models_dir = MODEL_DIR
         if not os.path.exists(trained_models_dir):
             raise FileNotFoundError("Training results not found")
 
         model_files = [
             f for f in os.listdir(trained_models_dir)
-            if f.startswith(f"{dataset_id}_") and f.endswith(".pkl")
+            if f.startswith(f"{dataset_id}{suffix}_") and f.endswith(".pkl")
         ]
         if not model_files:
             raise FileNotFoundError("Training results not found")
 
-        # 4. Load Problem Details
-        problem_info = ProblemDetectionService.detect_problem(dataset_id)
-        if problem_info is None:
-            return None
+        # 5. Load or Infer Target Column & Problem Details
+        if target_column is None:
+            target_column = df.columns[-1]
+        elif target_column not in df.columns:
+            raise ValueError(f"Target column '{target_column}' not found in dataset")
 
-        problem_type = problem_info.get("problem_type")
-        classification_type = problem_info.get("classification_type")
+        if experiment_id is not None:
+            # Infer problem type dynamically
+            y_col = df[target_column]
+            if not pd.api.types.is_numeric_dtype(y_col):
+                problem_type = "Classification"
+                num_classes = y_col.nunique()
+                classification_type = "Binary" if num_classes == 2 else "Multi-Class"
+            else:
+                num_classes = y_col.nunique()
+                if num_classes <= 5 and pd.api.types.is_integer_dtype(y_col):
+                    problem_type = "Classification"
+                    classification_type = "Binary" if num_classes == 2 else "Multi-Class"
+                else:
+                    problem_type = "Regression"
+                    classification_type = "N/A"
+        else:
+            problem_info = ProblemDetectionService.detect_problem(dataset_id)
+            if problem_info is None:
+                return None
+            problem_type = problem_info.get("problem_type")
+            classification_type = problem_info.get("classification_type")
 
-        # 5. Split Test Data (identical to training split)
-        target_column = df.columns[-1]
+        # 6. Split Test Data (identical to training split)
         X = df.drop(columns=[target_column])
         y = df[target_column]
 
+        test_size = float(1.0 - split_ratio)
         _, X_test, _, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
+            X, y, test_size=test_size, random_state=42
         )
 
         detailed_results = {}
 
-        # 6. Evaluate Each Model
+        # 7. Evaluate Each Model
         for file_name in model_files:
-            # File name pattern: <dataset_id>_<model_name>.pkl
-            # Strip dataset_id and extension to get model name
-            model_name = file_name[len(dataset_id) + 1:-4]
+            # File name pattern: <dataset_id>_<experiment_id>_<model_name>.pkl or <dataset_id>_<model_name>.pkl
+            model_name = file_name[len(dataset_id) + len(suffix) + 1:-4]
             model_path = os.path.join(trained_models_dir, file_name)
 
             try:
@@ -106,11 +136,9 @@ class EvaluationService:
                 metrics["recall"] = rec
                 metrics["f1_score"] = f1
 
-                # Visuals
                 cm = confusion_matrix(y_test, y_pred).tolist()
                 rep = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
 
-                # Weaknesses detection
                 if rec < 0.70:
                     weaknesses.append(f"Low recall ({rec:.2f}). Model misses a significant portion of actual positive cases.")
                 if prec < 0.70:
@@ -133,7 +161,6 @@ class EvaluationService:
                 metrics["rmse"] = rmse_val
                 metrics["r2_score"] = r2_val
 
-                # Residuals statistics
                 residuals = y_test - y_pred
                 residuals_stats = {
                     "mean": float(residuals.mean()),
@@ -143,10 +170,8 @@ class EvaluationService:
                     "max": float(residuals.max()),
                 }
 
-                # Weaknesses
                 if r2_val < 0.50:
                     weaknesses.append(f"Low R² score ({r2_val:.2f}). Model struggles to explain dataset variance.")
-                # If std is large compared to mean absolute target value
                 y_mean = y_test.abs().mean()
                 if y_mean > 0 and residuals_stats["std"] / y_mean > 0.5:
                     weaknesses.append("High residual standard deviation relative to target mean, indicating high prediction variance.")
@@ -157,7 +182,6 @@ class EvaluationService:
                     "weaknesses": weaknesses,
                 }
 
-            # Feature Importance
             if hasattr(model, "feature_importances_"):
                 importances = model.feature_importances_
                 feature_names = X.columns.tolist()
@@ -165,7 +189,6 @@ class EvaluationService:
                     name: float(imp)
                     for name, imp in zip(feature_names, importances)
                 }
-                # Sort descending
                 feat_imp = dict(
                     sorted(feat_imp.items(), key=lambda item: item[1], reverse=True)
                 )
@@ -174,7 +197,7 @@ class EvaluationService:
         if not detailed_results:
             raise RuntimeError("No models were successfully evaluated")
 
-        # 7. Comparison and Best Model
+        # 8. Comparison and Best Model
         model_comparison = []
         best_model = None
         best_metric_val = -float("inf")
@@ -199,13 +222,11 @@ class EvaluationService:
                 best_metric_val = metric_val
                 best_model = m_name
 
-        # Sort comparison list descending
         compare_key = "accuracy" if problem_type == "Classification" else "r2_score"
         model_comparison = sorted(
             model_comparison, key=lambda x: x[compare_key], reverse=True
         )
 
-        # 8. Feature Importance at top level (extract from best tree model or any tree model)
         top_feature_importance = {}
         for m_name in [
             best_model,
@@ -220,6 +241,7 @@ class EvaluationService:
 
         evaluation_data = {
             "dataset_id": dataset_id,
+            "experiment_id": experiment_id,
             "problem_type": problem_type,
             "best_model": best_model,
             "model_comparison": model_comparison,
@@ -229,6 +251,7 @@ class EvaluationService:
 
         # 9. Storage
         TrainingRepository.save_evaluation_result(evaluation_data)
-        logger.info(f"Model evaluation completed successfully for dataset {dataset_id}. Best model: {best_model}")
+        logger.info(f"Model evaluation completed successfully for dataset {dataset_id} (experiment {experiment_id}). Best model: {best_model}")
 
         return evaluation_data
+

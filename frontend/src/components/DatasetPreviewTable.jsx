@@ -3,6 +3,17 @@ import React, { useState } from "react";
 export function DatasetPreviewTable({ type = "profiling", data = [] }) {
   const [selectedRow, setSelectedRow] = useState(null);
 
+  if (data.length === 0) {
+    return (
+      <div className="glass-panel rounded-xl p-6 text-center text-on-surface-variant text-body-sm">
+        No preview data available
+      </div>
+    );
+  }
+
+  // Get keys from first object
+  const columns = Object.keys(data[0]);
+
   if (type === "copilot") {
     return (
       <div className="flex-1 glass-panel rounded-xl flex flex-col border border-border-subtle overflow-hidden">
@@ -16,10 +27,9 @@ export function DatasetPreviewTable({ type = "profiling", data = [] }) {
           <table className="w-full text-left text-xs font-code-snippet min-w-[400px]">
             <thead className="bg-surface-container-lowest text-on-surface-variant border-b border-border-subtle">
               <tr>
-                <th className="px-4 py-2 font-medium">user_id</th>
-                <th className="px-4 py-2 font-medium">signup_date</th>
-                <th className="px-4 py-2 font-medium">revenue</th>
-                <th className="px-4 py-2 font-medium">region</th>
+                {columns.map((col) => (
+                  <th key={col} className="px-4 py-2 font-medium">{col}</th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-border-subtle">
@@ -31,10 +41,11 @@ export function DatasetPreviewTable({ type = "profiling", data = [] }) {
                     selectedRow === idx ? "bg-primary-container/10" : ""
                   }`}
                 >
-                  <td className="px-4 py-3 text-primary-fixed">{row.userId}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{row.date}</td>
-                  <td className="px-4 py-3">{row.revenue}</td>
-                  <td className="px-4 py-3">{row.region}</td>
+                  {columns.map((col) => (
+                    <td key={col} className="px-4 py-3 whitespace-nowrap">
+                      {String(row[col])}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -53,9 +64,8 @@ export function DatasetPreviewTable({ type = "profiling", data = [] }) {
           <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-surface-container rounded-md cursor-pointer text-body-sm text-on-surface-variant w-full sm:w-auto">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-sm">filter_list</span>
-              <span className="font-medium">Head (First 10)</span>
+              <span className="font-medium">Head (First 5)</span>
             </div>
-            <span className="material-symbols-outlined text-sm">expand_more</span>
           </div>
         </div>
       </div>
@@ -64,51 +74,46 @@ export function DatasetPreviewTable({ type = "profiling", data = [] }) {
         <table className="w-full text-left border-collapse min-w-[700px]">
           <thead>
             <tr className="bg-surface-container-low border-b border-border-subtle">
-              <th className="px-6 py-4 font-label-md text-on-surface-variant uppercase">Row ID</th>
-              <th className="px-6 py-4 font-label-md text-on-surface-variant uppercase">TIMESTAMP</th>
-              <th className="px-6 py-4 font-label-md text-on-surface-variant uppercase">USER_ID</th>
-              <th className="px-6 py-4 font-label-md text-on-surface-variant uppercase">REGION</th>
-              <th className="px-6 py-4 font-label-md text-on-surface-variant uppercase">INTERACTION</th>
-              <th className="px-6 py-4 font-label-md text-on-surface-variant uppercase">VALUE</th>
+              {columns.map((col) => (
+                <th key={col} className="px-6 py-4 font-label-md text-on-surface-variant uppercase">
+                  {col}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-border-subtle">
-            {data.map((row) => {
-              // Color badges for interactions
-              const getBadgeClass = (act) => {
-                if (act === "PURCHASE") return "bg-blue-900/40 text-blue-300 border-blue-700/50";
-                if (act === "VIEW") return "bg-green-900/40 text-green-300 border-green-700/50";
-                if (act === "CLICK") return "bg-purple-900/40 text-purple-300 border-purple-700/50";
-                return "bg-yellow-900/40 text-yellow-300 border-yellow-700/50";
-              };
-
-              return (
-                <tr 
-                  key={row.id}
-                  onClick={() => setSelectedRow(row.id)}
-                  className={`hover:bg-white/5 transition-colors group cursor-pointer ${
-                    selectedRow === row.id ? "bg-primary-container/10" : ""
-                  }`}
-                >
-                  <td className="px-6 py-4 font-code-snippet text-white">{row.id}</td>
-                  <td className="px-6 py-4 font-body-sm text-on-surface-variant whitespace-nowrap">{row.timestamp}</td>
-                  <td className="px-6 py-4 font-body-sm text-primary-fixed">{row.userId}</td>
-                  <td className="px-6 py-4 font-body-sm text-on-surface-variant">{row.region}</td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase whitespace-nowrap ${getBadgeClass(row.interaction)}`}>
-                      {row.interaction}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 font-code-snippet text-white">{row.value}</td>
-                </tr>
-              );
-            })}
+            {data.map((row, idx) => (
+              <tr 
+                key={idx}
+                onClick={() => setSelectedRow(idx)}
+                className={`hover:bg-white/5 transition-colors group cursor-pointer ${
+                  selectedRow === idx ? "bg-primary-container/10" : ""
+                }`}
+              >
+                {columns.map((col) => {
+                  const val = row[col];
+                  // If column is ID-like, color it
+                  const isId = col.toLowerCase().includes("id") || col.toLowerCase() === "index" || col.toLowerCase() === "row_id";
+                  
+                  return (
+                    <td 
+                      key={col} 
+                      className={`px-6 py-4 font-body-sm whitespace-nowrap ${
+                        isId ? "font-code-snippet text-primary-fixed" : "text-on-surface-variant"
+                      }`}
+                    >
+                      {typeof val === "number" && !Number.isInteger(val) ? val.toFixed(4) : String(val)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
       
       <div className="p-4 bg-surface-container-low border-t border-border-subtle flex items-center justify-center text-body-sm text-on-surface-variant">
-        Showing 5 of 1,240,442 rows
+        Showing preview of the dataset
       </div>
     </div>
   );

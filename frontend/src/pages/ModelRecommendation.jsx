@@ -1,10 +1,88 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CandidateModelCard } from "../components/CandidateModelCard";
-import { mockCandidates } from "../services/mockDataService";
+import { useDataset } from "../contexts/DatasetContext";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { mlService } from "../services/mlService";
+import { analysisService } from "../services/analysisService";
 
 export function ModelRecommendation() {
   const navigate = useNavigate();
+  const { currentDatasetId, currentDataset } = useDataset();
+  const [launchError, setLaunchError] = useState("");
+
+  // Queries
+  const { data: recommendations, isLoading: isRecLoading, error: recError } = useQuery({
+    queryKey: ["recommendations", currentDatasetId],
+    queryFn: () => mlService.getRecommendations(currentDatasetId),
+    enabled: !!currentDatasetId,
+  });
+
+  const { data: problem, isLoading: isProblemLoading } = useQuery({
+    queryKey: ["problem-detection", currentDatasetId],
+    queryFn: () => analysisService.getProblemDetection(currentDatasetId),
+    enabled: !!currentDatasetId,
+  });
+
+  // Launch training mutation
+  const trainMutation = useMutation({
+    mutationFn: () => mlService.startTraining(currentDatasetId),
+    onSuccess: (data) => {
+      navigate(`/training?job_id=${data.job_id}&dataset_id=${currentDatasetId}`);
+    },
+    onError: (err) => {
+      setLaunchError(err.response?.data?.detail || "Failed to start training. Please make sure the dataset is processed.");
+    },
+  });
+
+  if (!currentDatasetId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center space-y-4 glass-card rounded-2xl p-8">
+        <span className="material-symbols-outlined text-4xl text-on-surface-variant">model_training</span>
+        <h2 className="font-headline-sm text-white">No Dataset Selected</h2>
+        <p className="text-on-surface-variant max-w-sm text-sm">
+          Please upload or select a dataset on the Dashboard to view model recommendations.
+        </p>
+        <button 
+          onClick={() => navigate("/upload")}
+          className="bg-primary-container text-on-primary-container px-6 py-2 rounded-lg text-body-sm font-bold hover:bg-accent-hover active:scale-95 transition-all"
+        >
+          Upload Dataset
+        </button>
+      </div>
+    );
+  }
+
+  const isLoading = isRecLoading || isProblemLoading;
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center space-y-4">
+        <div className="w-12 h-12 border-4 border-primary-container border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-on-surface-variant text-body-sm">Analyzing feature statistics and recommending optimal machine learning models...</p>
+      </div>
+    );
+  }
+
+  if (recError || !recommendations) {
+    return (
+      <div className="bg-error/10 border border-error/20 rounded-2xl p-6 flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
+        <span className="material-symbols-outlined text-4xl text-error">error</span>
+        <h3 className="font-headline-sm text-white">Recommendations Failed</h3>
+        <p className="text-on-surface-variant text-sm">
+          Could not recommend models. Please ensure the dataset is processed under Data Profiling first.
+        </p>
+        <button 
+          onClick={() => navigate("/profiling")}
+          className="bg-primary-container text-on-primary-container px-6 py-2 rounded-lg text-body-sm font-bold hover:bg-accent-hover active:scale-95 transition-all"
+        >
+          Go to Data Profiling
+        </button>
+      </div>
+    );
+  }
+
+  const recommendedModels = recommendations.recommended_models || [];
 
   return (
     <div className="space-y-12 pb-12">
@@ -21,25 +99,43 @@ export function ModelRecommendation() {
             Model Recommendation
           </h1>
           <p className="font-body-md text-body-md text-on-surface-variant max-w-2xl text-sm sm:text-base">
-            Adaptive Intelligence has analyzed your dataset and objective function. Below are the architectural recommendations tailored for your data profile.
+            Analyzing <span className="text-white font-bold">{currentDataset?.filename}</span>. Below are the architectural recommendations tailored for your data profile.
           </p>
         </div>
         <div className="flex flex-wrap gap-4">
           <button 
-            onClick={() => navigate('/under-construction')}
+            onClick={() => navigate('/profiling')}
             className="bg-surface-container px-6 py-2.5 rounded-lg border border-border-subtle hover:bg-surface-container-high transition-all font-label-md flex items-center gap-2 active:scale-95 text-sm"
           >
-            <span className="material-symbols-outlined text-sm">file_download</span>
-            Export Specs
+            <span className="material-symbols-outlined text-sm">analytics</span>
+            View Profile
           </button>
           <button 
-            onClick={() => navigate('/under-construction')}
-            className="bg-primary-container text-on-primary-container px-8 py-2.5 rounded-lg hover:bg-accent-hover transition-all font-bold shadow-lg shadow-primary-container/10 active:scale-95 text-sm"
+            onClick={() => trainMutation.mutate()}
+            disabled={trainMutation.isPending}
+            className="bg-primary-container text-on-primary-container px-8 py-2.5 rounded-lg hover:bg-accent-hover transition-all font-bold shadow-lg shadow-primary-container/10 active:scale-95 text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Launch Training
+            {trainMutation.isPending ? (
+              <>
+                <div className="w-4 h-4 border-2 border-on-primary-container border-t-transparent rounded-full animate-spin"></div>
+                Starting...
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined text-sm">rocket_launch</span>
+                Launch Training
+              </>
+            )}
           </button>
         </div>
       </header>
+
+      {launchError && (
+        <div className="bg-error/10 border border-error/20 rounded-xl p-4 flex gap-3 items-center text-error max-w-2xl">
+          <span className="material-symbols-outlined text-xl">error</span>
+          <p className="text-body-sm text-xs sm:text-sm">{launchError}</p>
+        </div>
+      )}
 
       {/* Main Grid Layout */}
       <div className="grid grid-cols-12 gap-gutter">
@@ -58,20 +154,26 @@ export function ModelRecommendation() {
             </div>
             
             <div className="space-y-4 z-10 relative">
-              <h2 className="font-headline-md text-headline-md text-primary">Binary Classification</h2>
+              <h2 className="font-headline-md text-headline-md text-primary">
+                {problem?.problem_type || "Detecting..."}
+              </h2>
               <p className="font-body-sm text-body-sm text-on-surface-variant text-xs sm:text-sm">
-                The system identified high-cardinality target variables with non-linear distribution patterns across 48 features.
+                Target classification scope matches dataset characteristics. Imbalance parameters configured automatically.
               </p>
             </div>
             
             <div className="mt-8 grid grid-cols-2 gap-4 z-10 relative">
               <div className="bg-background/40 p-4 rounded-lg border border-border-subtle">
                 <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider mb-1">Target</p>
-                <p className="text-body-md font-code-snippet font-mono text-xs sm:text-sm">churn_label</p>
+                <p className="text-body-md font-code-snippet font-mono text-xs sm:text-sm">
+                  {problem?.target_column || "N/A"}
+                </p>
               </div>
               <div className="bg-background/40 p-4 rounded-lg border border-border-subtle">
                 <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider mb-1">Imbalance</p>
-                <p className="text-body-md font-code-snippet font-mono text-xs sm:text-sm">1:8.4 (Moderate)</p>
+                <p className="text-body-md font-code-snippet font-mono text-xs sm:text-sm">
+                  {problem?.classification_type || "N/A"}
+                </p>
               </div>
             </div>
           </section>
@@ -109,34 +211,25 @@ export function ModelRecommendation() {
         <div className="col-span-12 lg:col-span-8 space-y-gutter">
           <div className="flex items-center justify-between px-2">
             <h3 className="font-headline-sm text-headline-sm text-primary">Candidate Models</h3>
-            <div className="flex gap-2">
-              <button 
-                onClick={() => navigate('/under-construction')}
-                className="p-2 bg-surface-container rounded border border-border-subtle hover:bg-surface-container-high transition-colors"
-              >
-                <span className="material-symbols-outlined text-sm">filter_list</span>
-              </button>
-              <button 
-                onClick={() => navigate('/under-construction')}
-                className="p-2 bg-surface-container rounded border border-border-subtle hover:bg-surface-container-high transition-colors"
-              >
-                <span className="material-symbols-outlined text-sm">sort</span>
-              </button>
-            </div>
           </div>
           
           <div className="space-y-4">
-            {mockCandidates.map((cand, idx) => (
+            {recommendedModels.map((cand, idx) => (
               <CandidateModelCard
                 key={idx}
-                name={cand.name}
-                score={cand.score}
-                recommended={cand.recommended}
-                description={cand.description}
-                metrics={cand.metrics}
-                disabled={cand.disabled}
+                name={cand.model}
+                score={Math.round(100 - (cand.priority * 8))} // priority 1 = 92, priority 2 = 84, etc.
+                recommended={cand.priority === 1}
+                description={cand.reason}
+                metrics={[`Priority: ${cand.priority}`]}
+                disabled={cand.model.toLowerCase().includes("xgboost")} // disable XGBoost in frontend since mvp trains sklearn
               />
             ))}
+            {recommendedModels.length === 0 && (
+              <div className="glass-panel p-6 text-center text-on-surface-variant text-body-sm">
+                No model candidates recommended for this dataset.
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -155,7 +248,7 @@ export function ModelRecommendation() {
             </div>
             <h5 className="font-headline-sm text-headline-sm text-primary text-body-lg">Feature Distribution</h5>
             <p className="font-body-sm text-body-sm text-on-surface-variant leading-relaxed text-xs sm:text-sm">
-              System detected a power-law distribution in 'transaction_volume'. XGBoost was favored due to its native handling of monotonic constraints.
+              Model parameters set to reflect scale and distribution constraints. Favors tree-based ensembles for non-linear structures.
             </p>
           </div>
 
@@ -165,64 +258,21 @@ export function ModelRecommendation() {
             </div>
             <h5 className="font-headline-sm text-headline-sm text-primary text-body-lg">Imbalance Handling</h5>
             <p className="font-body-sm text-body-sm text-on-surface-variant leading-relaxed text-xs sm:text-sm">
-              Scale_pos_weight parameter set to 8.4 automatically. SMOTE was rejected due to risk of synthetic noise in high-dimensional space.
+              Auto-detect imbalance ratios. Applies balanced class weights inside logistic and forest classifiers to guard precision boundaries.
             </p>
           </div>
 
           <div className="glass-card rounded-xl p-6 space-y-4 relative overflow-hidden hover:border-primary-fixed/30 transition-all cursor-pointer">
-            <img 
-              alt="Strategic Insight" 
-              className="absolute -right-12 -bottom-12 w-48 h-48 object-contain opacity-10 rotate-12 pointer-events-none" 
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuDMM_D1w96VaMnGwXaU-O_3yUozHpmqLNIKwAy3d4LGF7S3G5H5AozFGvJ-GpXVzco0m6VyDWG3Yw4uMSjgtNE0bt6eRJXFKsAOupn2U7OUW7kzFNSfRCFpoEdz2ZSE7BfwTKMnsvBnU9peJp4hS48wYMlcDGpWH9HJNRFSJp33cV8_LE-04iWETa_kqhp4LTTnyuh0Xm9zmofarEd75gfMfas0zX-olOnXfjXJKWZHKJuR9e-yiNN-6iEukBpNzI4GraKDlmV3Ms0"
-            />
             <div className="w-10 h-10 bg-primary-fixed/10 flex items-center justify-center rounded-lg border border-primary-fixed/20 text-primary-fixed">
               <span className="material-symbols-outlined">insights</span>
             </div>
             <h5 className="font-headline-sm text-headline-sm text-primary text-body-lg">Cardinality Management</h5>
             <p className="font-body-sm text-body-sm text-on-surface-variant leading-relaxed text-xs sm:text-sm z-10 relative">
-              CatBoost-style encoding applied to the 'region' and 'merchant_id' features, preventing dimensionality explosion in the recommended trees.
+              Label encoding and min-max scaling performed inside Feature Engineering pipeline. Prevents dimensionality explosion on trees.
             </p>
           </div>
         </div>
       </section>
-
-      {/* Accuracy lift footer */}
-      <footer className="glass-card rounded-xl p-6 md:p-8 border-t-2 border-t-primary-container/20">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="flex items-center gap-6">
-            <div className="relative w-16 h-16 flex-shrink-0">
-              <svg className="w-full h-full -rotate-90">
-                <circle className="text-surface-container-high" cx="32" cy="32" fill="transparent" r="28" stroke="currentColor" strokeWidth="4"></circle>
-                <circle className="text-primary-fixed" cx="32" cy="32" fill="transparent" r="28" stroke="currentColor" strokeDasharray="176" stroke-dashoffset="18" strokeWidth="4"></circle>
-              </svg>
-              <span className="absolute inset-0 flex items-center justify-center font-bold text-xs text-primary-fixed">90%</span>
-            </div>
-            <div>
-              <p className="font-headline-sm text-headline-sm text-primary text-body-lg">Estimated Accuracy Lift</p>
-              <p className="font-body-sm text-body-sm text-on-surface-variant text-xs sm:text-sm">Projected vs. Baseline logistic regression model (+12.4%)</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <div className="flex -space-x-3 overflow-hidden">
-              <img 
-                alt="Scientist male" 
-                className="inline-block h-10 w-10 rounded-full ring-2 ring-background object-cover" 
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuDhXTwFaSckHNApwWYf1jRJTdaN97mlMKcJWcMPz4NRu3lDfdJDtJ5mp2Ugcc989C_GZpEwBiMhZePOOw3YFNJJemoR6tA-9MT-R58YcY7Kql0cChShjQfG2o6VNcSCn09rREwqSLuNszOGy7V-vqQ1c6zU42lyUg5ZbH2p7rqQtMPo8QBuTkgQphZXuaYK0SBjZTdmSMrFSHeDuSW1kmSPR5j9Ff1XFEcH28aWTXSgJ60rVWv0Y9DQXka1-tSor095YlKQySLlYwQ"
-              />
-              <img 
-                alt="Scientist female" 
-                className="inline-block h-10 w-10 rounded-full ring-2 ring-background object-cover" 
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuDbc2zgRuQbeLXuPI98cVFrObGBu4s5lNFIzEJKMpv0g_lpo679WrzOajc1EfB4dTY66-l-III2Zru_kPJSrpkhBi9unrFR_9OGYSJDYK26Riu75_rPV6MeyDrsTxutNCvIBTs008CPNRhxJvDqWTne84CQ2GazRDsw91xxqPBpoIxiGLprOghWd4c5X4hMAD32iEspth64Sx6zPWjL35-AeMDrZ__SBkks1E3V_anvSkMez-zaFEaKKc3mnGcVgFknjGlDUVb36Ao"
-              />
-              <div className="inline-block h-10 w-10 rounded-full ring-2 ring-background bg-surface-container-highest flex items-center justify-center text-[10px] font-bold text-white">
-                +12
-              </div>
-            </div>
-            <span className="text-body-sm text-on-surface-variant ml-2 font-medium text-xs sm:text-sm">Collaborators active</span>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

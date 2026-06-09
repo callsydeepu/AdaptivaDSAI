@@ -5,7 +5,12 @@ import { Dashboard } from "./pages/Dashboard";
 import { DataProfiling } from "./pages/DataProfiling";
 import { ModelRecommendation } from "./pages/ModelRecommendation";
 import { AICopilot } from "./pages/AICopilot";
-import { UnderConstruction } from "./pages/UnderConstruction";
+import { Settings } from "./pages/Settings";
+import { NewExperiment } from "./pages/NewExperiment";
+import { UploadDataset } from "./pages/UploadDataset";
+import { Training } from "./pages/Training";
+import { Reports } from "./pages/Reports";
+import { SystemLogs } from "./pages/SystemLogs";
 
 function App() {
   return (
@@ -17,11 +22,15 @@ function App() {
           <Route path="/models" element={<ModelRecommendation />} />
           <Route path="/copilot" element={<AICopilot />} />
           
-          {/* Fallback construction paths */}
-          <Route path="/upload" element={<UnderConstruction />} />
-          <Route path="/reports" element={<UnderConstruction />} />
-          <Route path="/settings" element={<UnderConstruction />} />
-          <Route path="/under-construction" element={<UnderConstruction />} />
+          {/* Real routes replacing under-construction panels */}
+          <Route path="/upload" element={<UploadDataset />} />
+          <Route path="/training" element={<Training />} />
+          <Route path="/reports" element={<Reports />} />
+          
+          {/* Settings & New Experiment paths */}
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/under-construction" element={<NewExperiment />} />
+          <Route path="/logs" element={<SystemLogs />} />
           
           {/* Redirection fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -32,3 +41,4 @@ function App() {
 }
 
 export default App;
+

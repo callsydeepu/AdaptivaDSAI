@@ -12,7 +12,7 @@ class TrainingRepository:
         if db_connected and db is not None:
             try:
                 doc = training_job_data.copy()
-                doc["_id"] = doc["dataset_id"]
+                doc["_id"] = doc.get("experiment_id") or doc["dataset_id"]
                 db.training_jobs.replace_one({"_id": doc["_id"]}, doc, upsert=True)
             except Exception as e:
                 print(f"Error writing to MongoDB training_jobs collection: {e}")
@@ -20,36 +20,40 @@ class TrainingRepository:
     @staticmethod
     def save_evaluation_result(evaluation_result_data):
         dataset_id = evaluation_result_data["dataset_id"]
+        experiment_id = evaluation_result_data.get("experiment_id")
+        key = f"{dataset_id}_{experiment_id}" if experiment_id else dataset_id
 
         # Phase 1: Write to MongoDB (if available)
         if db_connected and db is not None:
             try:
                 doc = evaluation_result_data.copy()
-                doc["_id"] = dataset_id
+                doc["_id"] = key
                 db.evaluation_results.replace_one({"_id": doc["_id"]}, doc, upsert=True)
             except Exception as e:
                 print(f"Error writing to MongoDB evaluation_results collection: {e}")
 
         # Write to existing JSON
         os.makedirs(EVALUATION_RESULTS_DIR, exist_ok=True)
-        results_path = os.path.join(EVALUATION_RESULTS_DIR, f"{dataset_id}.json")
+        results_path = os.path.join(EVALUATION_RESULTS_DIR, f"{key}.json")
         with open(results_path, "w") as f:
             json.dump(evaluation_result_data, f, indent=4)
 
     @staticmethod
-    def get_evaluation_result(dataset_id):
+    def get_evaluation_result(dataset_id, experiment_id=None):
+        key = f"{dataset_id}_{experiment_id}" if experiment_id else dataset_id
+
         # Phase 2: Read from MongoDB first
         if db_connected and db is not None:
             try:
-                doc = db.evaluation_results.find_one({"_id": dataset_id})
+                doc = db.evaluation_results.find_one({"_id": key})
                 if doc:
                     doc.pop("_id", None)
                     return doc
             except Exception as e:
-                print(f"Error reading evaluation result {dataset_id} from MongoDB: {e}. Falling back to JSON.")
+                print(f"Error reading evaluation result {key} from MongoDB: {e}. Falling back to JSON.")
 
         # Fallback to JSON
-        results_path = os.path.join(EVALUATION_RESULTS_DIR, f"{dataset_id}.json")
+        results_path = os.path.join(EVALUATION_RESULTS_DIR, f"{key}.json")
         if os.path.exists(results_path):
             try:
                 with open(results_path, "r") as f:
@@ -57,3 +61,4 @@ class TrainingRepository:
             except Exception:
                 return None
         return None
+

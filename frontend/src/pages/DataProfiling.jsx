@@ -2,37 +2,177 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { QualityScoreGauge } from "../components/QualityScoreGauge";
 import { DatasetPreviewTable } from "../components/DatasetPreviewTable";
-import { mockProfileData } from "../services/mockDataService";
+import { useDataset } from "../contexts/DatasetContext";
+import { useQuery } from "@tanstack/react-query";
+import { analysisService } from "../services/analysisService";
+import api from "../services/api";
 
 export function DataProfiling() {
   const navigate = useNavigate();
+  const { currentDatasetId, currentDataset } = useDataset();
+
+  // Queries
+  const { data: profile, isLoading: isProfileLoading, error: profileError } = useQuery({
+    queryKey: ["profiling", currentDatasetId],
+    queryFn: () => analysisService.getProfiling(currentDatasetId),
+    enabled: !!currentDatasetId,
+  });
+
+  const { data: stats, isLoading: isStatsLoading } = useQuery({
+    queryKey: ["statistics", currentDatasetId],
+    queryFn: () => analysisService.getStatistics(currentDatasetId),
+    enabled: !!currentDatasetId,
+  });
+
+  const { data: eda, isLoading: isEdaLoading } = useQuery({
+    queryKey: ["eda", currentDatasetId],
+    queryFn: () => analysisService.getEDA(currentDatasetId),
+    enabled: !!currentDatasetId,
+  });
+
+  const { data: preview, isLoading: isPreviewLoading } = useQuery({
+    queryKey: ["preview", currentDatasetId],
+    queryFn: async () => {
+      const response = await api.get(`/datasets/${currentDatasetId}/preview`);
+      return response.data;
+    },
+    enabled: !!currentDatasetId,
+  });
+
+  if (!currentDatasetId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center space-y-4 glass-card rounded-2xl p-8">
+        <span className="material-symbols-outlined text-4xl text-on-surface-variant">analytics</span>
+        <h2 className="font-headline-sm text-white">No Dataset Selected</h2>
+        <p className="text-on-surface-variant max-w-sm text-sm">
+          Please upload or select a dataset on the Dashboard to view its data profile and analytics.
+        </p>
+        <button 
+          onClick={() => navigate("/upload")}
+          className="bg-primary-container text-on-primary-container px-6 py-2 rounded-lg text-body-sm font-bold hover:bg-accent-hover active:scale-95 transition-all"
+        >
+          Upload Dataset
+        </button>
+      </div>
+    );
+  }
+
+  const isLoading = isProfileLoading || isStatsLoading || isEdaLoading || isPreviewLoading;
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center space-y-4">
+        <div className="w-12 h-12 border-4 border-primary-container border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-on-surface-variant text-body-sm">Analyzing dataset structure, computing correlations, and building profiles...</p>
+      </div>
+    );
+  }
+
+  if (profileError || !profile) {
+    return (
+      <div className="bg-error/10 border border-error/20 rounded-2xl p-6 flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
+        <span className="material-symbols-outlined text-4xl text-error">error</span>
+        <h3 className="font-headline-sm text-white">Profiling Analysis Failed</h3>
+        <p className="text-on-surface-variant text-sm">
+          There was an error profiling this dataset. Please ensure the file is a valid CSV and is not empty.
+        </p>
+        <button 
+          onClick={() => navigate("/")}
+          className="bg-transparent border border-on-surface/20 text-on-surface px-6 py-2 rounded-lg text-body-sm font-medium hover:bg-surface-container-high transition-colors"
+        >
+          Go Back
+        </button>
+      </div>
+    );
+  }
+
+  // Quality score formula
+  const missingCellRatio = profile.missing_values / (profile.rows * profile.columns || 1);
+  const duplicateRatio = profile.duplicate_rows / (profile.rows || 1);
+  const qualityScore = Math.max(0, Math.round(100 - (missingCellRatio * 50) - (duplicateRatio * 50)));
+
+  // Dynamic observations
+  const observations = [];
+  const missingPercent = ((profile.missing_values / (profile.rows * profile.columns || 1)) * 100).toFixed(2);
+  
+  if (profile.missing_values === 0) {
+    observations.push({ text: "Perfect integrity! No missing values detected in the dataset.", type: "success" });
+  } else {
+    observations.push({ text: `Missing values detected: ${profile.missing_values.toLocaleString()} values (${missingPercent}% of cells). Imputation will be applied.`, type: "warning" });
+  }
+
+  if (profile.duplicate_rows === 0) {
+    observations.push({ text: "Excellent! No duplicate rows found in this dataset.", type: "success" });
+  } else {
+    const dupPercent = ((profile.duplicate_rows / profile.rows) * 100).toFixed(1);
+    observations.push({ text: `Found ${profile.duplicate_rows.toLocaleString()} duplicate rows (${dupPercent}%). They will be dropped automatically.`, type: "tip" });
+  }
+
+  if (eda) {
+    const totalOutliers = Object.values(eda.outliers).reduce((a, b) => a + b, 0);
+    if (totalOutliers > 0) {
+      observations.push({ text: `Detected ${totalOutliers.toLocaleString()} outliers across numeric features. Review column metrics to examine details.`, type: "tip" });
+    } else {
+      observations.push({ text: "No outliers detected in the numeric columns of the dataset.", type: "success" });
+    }
+  }
+
+  // Dynamic Column breakdowns
+  const columnsStats = [];
+  if (eda) {
+    eda.numeric_columns.forEach((colName) => {
+      const colStats = stats?.[colName] || {};
+      const outlierCount = eda.outliers?.[colName] || 0;
+      columnsStats.push({
+        name: colName,
+        type: "Numeric",
+        min: `Min: ${colStats.min !== undefined ? colStats.min.toFixed(2) : "N/A"}`,
+        max: `Max: ${colStats.max !== undefined ? colStats.max.toFixed(2) : "N/A"}`,
+        metric: `Mean: ${colStats.mean !== undefined ? colStats.mean.toFixed(2) : "N/A"} | Outliers: ${outlierCount}`,
+        width: "85%",
+        highlight: outlierCount > 0,
+      });
+    });
+
+    eda.categorical_columns.forEach((colName) => {
+      columnsStats.push({
+        name: colName,
+        type: "Categorical",
+        min: "N/A",
+        max: "N/A",
+        metric: "Categorical Column",
+        width: "100%",
+        highlight: false,
+      });
+    });
+  }
 
   return (
     <div className="space-y-10 max-w-[1600px] mx-auto pb-12">
       {/* Page Header */}
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-border-subtle/30 pb-6">
         <div>
-          <h1 className="font-display-lg text-display-lg-mobile md:text-headline-md text-primary-fixed mb-2">
+          <h1 className="font-display-lg text-display-lg-mobile md:text-display-lg text-primary-fixed mb-2">
             Data Profiling
           </h1>
           <p className="font-body-md text-on-surface-variant">
-            Analyzing <span className="text-primary font-bold">{mockProfileData.datasetName}</span> • Last updated {mockProfileData.lastUpdated}
+            Analyzing <span className="text-primary font-bold">{currentDataset?.filename}</span>
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
           <button 
-            onClick={() => navigate('/under-construction')}
+            onClick={() => navigate('/reports')}
             className="bg-surface-container-high border border-border-subtle px-4 py-2.5 rounded-lg text-body-sm font-medium hover:bg-surface-container-highest active:scale-95 transition-all flex items-center gap-2"
           >
             <span className="material-symbols-outlined text-lg">download</span>
-            Export PDF
+            Compile Report
           </button>
           <button 
-            onClick={() => navigate('/under-construction')}
+            onClick={() => navigate('/models')}
             className="bg-primary-container text-on-primary-container px-4 py-2.5 rounded-lg text-body-sm font-bold hover:bg-accent-hover active:scale-95 transition-all flex items-center gap-2"
           >
-            <span className="material-symbols-outlined text-lg">refresh</span>
-            Re-run Profile
+            <span className="material-symbols-outlined text-lg">model_training</span>
+            Model Specs
           </button>
         </div>
       </header>
@@ -44,13 +184,13 @@ export function DataProfiling() {
           <div className="z-10">
             <p className="font-label-md text-on-surface-variant uppercase tracking-widest mb-1 text-xs">Quality Score</p>
             <h2 className="font-display-lg text-primary-fixed text-display-lg-mobile mb-1">
-              {mockProfileData.qualityScore}%
+              {qualityScore}%
             </h2>
             <p className="text-body-sm text-green-400 flex items-center gap-1 text-xs whitespace-nowrap">
-              <span className="material-symbols-outlined text-sm">trending_up</span> +2.4% from last run
+              <span className="material-symbols-outlined text-sm">trending_up</span> Stable
             </p>
           </div>
-          <QualityScoreGauge score={mockProfileData.qualityScore} />
+          <QualityScoreGauge score={qualityScore} />
           <div className="absolute top-0 right-0 w-32 h-full shimmer-ai opacity-30 pointer-events-none"></div>
         </div>
 
@@ -59,7 +199,7 @@ export function DataProfiling() {
           <span className="material-symbols-outlined text-on-surface-variant text-2xl mb-4">table_rows</span>
           <div>
             <p className="font-label-md text-on-surface-variant uppercase tracking-tighter text-xs">Total Rows</p>
-            <h3 className="font-display-lg text-white text-headline-sm">{mockProfileData.totalRows}</h3>
+            <h3 className="font-display-lg text-white text-headline-sm">{profile.rows.toLocaleString()}</h3>
           </div>
         </div>
 
@@ -68,7 +208,7 @@ export function DataProfiling() {
           <span className="material-symbols-outlined text-on-surface-variant text-2xl mb-4">view_column</span>
           <div>
             <p className="font-label-md text-on-surface-variant uppercase tracking-tighter text-xs">Columns</p>
-            <h3 className="font-display-lg text-white text-headline-sm">{mockProfileData.columns}</h3>
+            <h3 className="font-display-lg text-white text-headline-sm">{profile.columns}</h3>
           </div>
         </div>
 
@@ -77,7 +217,7 @@ export function DataProfiling() {
           <span className="material-symbols-outlined text-on-surface-variant text-2xl mb-4 text-orange-400">warning</span>
           <div>
             <p className="font-label-md text-on-surface-variant uppercase tracking-tighter text-xs">Missing Values</p>
-            <h3 className="font-display-lg text-white text-headline-sm">{mockProfileData.missingValues}</h3>
+            <h3 className="font-display-lg text-white text-headline-sm">{profile.missing_values.toLocaleString()}</h3>
           </div>
         </div>
 
@@ -86,7 +226,7 @@ export function DataProfiling() {
           <span className="material-symbols-outlined text-on-surface-variant text-2xl mb-4 text-primary-container">content_copy</span>
           <div>
             <p className="font-label-md text-on-surface-variant uppercase tracking-tighter text-xs">Duplicates</p>
-            <h3 className="font-display-lg text-white text-headline-sm">{mockProfileData.duplicates}</h3>
+            <h3 className="font-display-lg text-white text-headline-sm">{profile.duplicate_rows.toLocaleString()}</h3>
           </div>
         </div>
       </section>
@@ -95,7 +235,7 @@ export function DataProfiling() {
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Table preview */}
         <div className="lg:col-span-8 flex flex-col">
-          <DatasetPreviewTable type="profiling" data={mockProfileData.sampleRows} />
+          <DatasetPreviewTable type="profiling" data={preview} />
         </div>
 
         {/* Sidebar observations and heatmaps */}
@@ -110,7 +250,7 @@ export function DataProfiling() {
                 <h4 className="font-headline-sm text-white">AI Observations</h4>
               </div>
               <ul className="space-y-4">
-                {mockProfileData.observations.map((obs, idx) => {
+                {observations.map((obs, idx) => {
                   const getIcon = (type) => {
                     if (type === "success") return <span className="material-symbols-outlined text-green-400 mt-0.5">check_circle</span>;
                     if (type === "tip") return <span className="material-symbols-outlined text-primary-container mt-0.5">lightbulb</span>;
@@ -141,12 +281,11 @@ export function DataProfiling() {
                   src="https://lh3.googleusercontent.com/aida-public/AB6AXuAvnR063vKMn6KXKb1eUr9qtOBZBb8Fjdgmt8X57FoEiPQdJ3LXFAfsdeuGkesJS3kmph_OFtIVf7XcKmDlZqxsT-l2MFgafJmO3GQcJPtKEYG8ZA5ouR7AZH1wfDXhmtDY6vz11MR06t3o1dwzni41dQWPTH9AiWLkcZb7bWEx6erI2E5zvdpqMRJ5-rtIbO14NE5Ng-YSsf_KEgWjrhRy1ch4-y6YqNuoHXJotyZwLdqmanDMnrk9B7u6EmeD5XPB6jqRYuo-BQU"
                 />
                 <div 
-                  onClick={() => navigate('/under-construction')}
-                  className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity backdrop-blur-[2px] cursor-pointer"
+                  className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity backdrop-blur-[2px]"
                 >
                   <div className="bg-primary-container text-on-primary-container px-4 py-2 rounded-full font-bold text-label-md flex items-center gap-2">
                     <span className="material-symbols-outlined">zoom_in</span>
-                    Expand Heatmap
+                    Correlation Matrix Computed
                   </div>
                 </div>
               </div>
@@ -159,7 +298,7 @@ export function DataProfiling() {
       <section className="space-y-6">
         <h4 className="font-headline-sm text-white">Column Statistics</h4>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {mockProfileData.columnsStats.map((col, idx) => (
+          {columnsStats.map((col, idx) => (
             <div 
               key={idx} 
               className={`glass-panel rounded-xl p-5 border-t-2 ${
@@ -173,9 +312,6 @@ export function DataProfiling() {
                     {col.type}
                   </span>
                 </div>
-                <span className="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-white transition-colors">
-                  more_vert
-                </span>
               </div>
               
               <div className="space-y-2 mb-4">

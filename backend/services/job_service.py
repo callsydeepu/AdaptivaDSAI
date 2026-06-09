@@ -91,3 +91,68 @@ class JobService:
         except Exception as e:
             logger.error(f"Report generation job {job_id} failed: {str(e)}", exc_info=True)
             JobService.update_job(job_id, status="FAILED", progress=100, error=str(e))
+
+    @staticmethod
+    def run_experiment_job(job_id: str, dataset_id: str, experiment_id: str):
+        try:
+            logger.info(f"Starting custom experiment job {job_id} in background")
+            JobService.update_job(job_id, status="RUNNING", progress=10)
+            
+            from repositories.experiment_repository import ExperimentRepository
+            from services.feature_engineering_service import FeatureEngineeringService
+            from services.training_service import TrainingService
+            from services.evaluation_service import EvaluationService
+            
+            # 1. Load experiment config
+            experiment = ExperimentRepository.get_experiment(experiment_id)
+            if not experiment:
+                raise ValueError("Experiment metadata not found")
+                
+            experiment["status"] = "running"
+            ExperimentRepository.save_experiment(experiment)
+            
+            # 2. Run Preprocessing (Feature Engineering)
+            JobService.update_job(job_id, progress=20)
+            FeatureEngineeringService.process_dataset(
+                dataset_id=dataset_id,
+                experiment_id=experiment_id,
+                target_column=experiment.get("target_column"),
+                imputation_strategy=experiment.get("imputation_strategy", "median"),
+                outlier_threshold=experiment.get("outlier_threshold")
+            )
+            
+            # 3. Run Training
+            JobService.update_job(job_id, progress=50)
+            TrainingService.train_models(
+                dataset_id=dataset_id,
+                experiment_id=experiment_id,
+                target_column=experiment.get("target_column"),
+                split_ratio=experiment.get("split_ratio", 0.8),
+                selected_models=experiment.get("selected_models")
+            )
+            
+            # 4. Run Evaluation
+            JobService.update_job(job_id, progress=80)
+            result = EvaluationService.evaluate_dataset(
+                dataset_id=dataset_id,
+                experiment_id=experiment_id
+            )
+            
+            # 5. Complete Job and Experiment
+            JobService.update_job(job_id, status="COMPLETED", progress=100, result=result)
+            experiment["status"] = "completed"
+            ExperimentRepository.save_experiment(experiment)
+            logger.info(f"Custom experiment job {job_id} completed successfully")
+        except Exception as e:
+            logger.error(f"Custom experiment job {job_id} failed: {str(e)}", exc_info=True)
+            JobService.update_job(job_id, status="FAILED", progress=100, error=str(e))
+            
+            try:
+                from repositories.experiment_repository import ExperimentRepository
+                experiment = ExperimentRepository.get_experiment(experiment_id)
+                if experiment:
+                    experiment["status"] = "failed"
+                    ExperimentRepository.save_experiment(experiment)
+            except Exception:
+                pass
+

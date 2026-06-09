@@ -26,14 +26,21 @@ from core.logger import logger
 class TrainingService:
 
     @staticmethod
-    def train_models(dataset_id: str):
+    def train_models(
+        dataset_id: str,
+        experiment_id: str = None,
+        target_column: str = None,
+        split_ratio: float = 0.8,
+        selected_models: list = None
+    ):
         # 1. Load Dataset Metadata
         dataset = DatasetService.get_dataset_by_id(dataset_id)
         if dataset is None:
             return None
 
         # 2. Load Processed Dataset
-        processed_path = os.path.join(PROCESSED_DIR, f"{dataset_id}.csv")
+        suffix = f"_{experiment_id}" if experiment_id else ""
+        processed_path = os.path.join(PROCESSED_DIR, f"{dataset_id}{suffix}.csv")
         if not os.path.exists(processed_path):
             raise FileNotFoundError("Processed dataset not found")
 
@@ -41,28 +48,43 @@ class TrainingService:
         if df.empty or len(df.columns) == 0 or len(df) == 0:
             raise ValueError("Dataset empty")
 
-        # 3. Load Problem Details
-        problem_info = ProblemDetectionService.detect_problem(dataset_id)
-        if problem_info is None:
-            return None
+        # 3. Load or Infer Target Column
+        if target_column is None:
+            target_column = df.columns[-1]
+        elif target_column not in df.columns:
+            raise ValueError(f"Target column '{target_column}' not found in dataset")
 
-        problem_type = problem_info.get("problem_type")
-        classification_type = problem_info.get("classification_type")
+        # 4. Load or Infer Problem Details
+        if experiment_id is not None:
+            # Infer problem type for target column dynamically
+            y_col = df[target_column]
+            if not pd.api.types.is_numeric_dtype(y_col):
+                problem_type = "Classification"
+                num_classes = y_col.nunique()
+                classification_type = "Binary" if num_classes == 2 else "Multi-Class"
+            else:
+                num_classes = y_col.nunique()
+                if num_classes <= 5 and pd.api.types.is_integer_dtype(y_col):
+                    problem_type = "Classification"
+                    classification_type = "Binary" if num_classes == 2 else "Multi-Class"
+                else:
+                    problem_type = "Regression"
+                    classification_type = "N/A"
+        else:
+            problem_info = ProblemDetectionService.detect_problem(dataset_id)
+            if problem_info is None:
+                return None
+            problem_type = problem_info.get("problem_type")
+            classification_type = problem_info.get("classification_type")
 
-        # 4. Load Recommended Models
-        rec_info = ModelRecommendationService.recommend_models(dataset_id)
-        if rec_info is None:
-            return None
-
-        recommended_models = rec_info.get("recommended_models", [])
-
-        # Filter supported models
+        # 5. Filter supported models
         supported_class_models = ["LogisticRegression", "RandomForestClassifier", "DecisionTreeClassifier"]
         supported_reg_models = ["LinearRegression", "RandomForestRegressor", "DecisionTreeRegressor"]
 
         models_to_train = []
-        for m in recommended_models:
-            model_name = m["model"]
+        candidates = selected_models if selected_models else (supported_class_models if problem_type == "Classification" else supported_reg_models)
+        
+        for model_name in candidates:
             if problem_type == "Classification" and model_name in supported_class_models:
                 models_to_train.append(model_name)
             elif problem_type == "Regression" and model_name in supported_reg_models:
@@ -74,21 +96,21 @@ class TrainingService:
             else:
                 models_to_train = supported_reg_models.copy()
 
-        # 5. Split Data
-        target_column = df.columns[-1]
+        # 6. Split Data
         X = df.drop(columns=[target_column])
         y = df[target_column]
 
+        test_size = float(1.0 - split_ratio)
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
+            X, y, test_size=test_size, random_state=42
         )
 
-        logger.info(f"Training models for dataset {dataset_id}. Models to train: {models_to_train}")
+        logger.info(f"Training models for dataset {dataset_id} (experiment {experiment_id}). Models to train: {models_to_train}")
         model_results = []
         trained_models_dir = MODEL_DIR
         os.makedirs(trained_models_dir, exist_ok=True)
 
-        # 6. Fit & Evaluate Models
+        # 7. Fit & Evaluate Models
         for model_name in models_to_train:
             if model_name == "LogisticRegression":
                 model = LogisticRegression(max_iter=1000, random_state=42)
@@ -124,8 +146,8 @@ class TrainingService:
                 metrics["rmse"] = float(np.sqrt(mean_squared_error(y_test, y_pred)))
                 metrics["r2_score"] = float(r2_score(y_test, y_pred))
 
-            # Save model to disk
-            model_file_name = f"{dataset_id}_{model_name}.pkl"
+            # Save model to disk with experiment suffix if applicable
+            model_file_name = f"{dataset_id}{suffix}_{model_name}.pkl"
             model_path = os.path.join(trained_models_dir, model_file_name)
             joblib.dump(model, model_path)
 
@@ -134,7 +156,7 @@ class TrainingService:
         if not model_results:
             raise RuntimeError("No models were successfully trained")
 
-        # 7. Determine Best Model
+        # 8. Determine Best Model
         best_model_name = None
         best_metric_val = -float("inf")
 
@@ -150,12 +172,16 @@ class TrainingService:
 
         results = {
             "dataset_id": dataset_id,
+            "experiment_id": experiment_id,
             "problem_type": problem_type,
             "models": model_results,
-            "best_model": best_model_name
+            "best_model": best_model_name,
+            "target_column": target_column,
+            "split_ratio": split_ratio
         }
 
         TrainingRepository.save_training_job(results)
-        logger.info(f"Model training completed for dataset {dataset_id}. Best model: {best_model_name}")
+        logger.info(f"Model training completed for dataset {dataset_id} (experiment {experiment_id}). Best model: {best_model_name}")
 
         return results
+

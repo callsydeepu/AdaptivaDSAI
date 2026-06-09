@@ -3,11 +3,29 @@ import { useNavigate } from "react-router-dom";
 import { KPICard } from "../components/KPICard";
 import { PerformanceChart } from "../components/PerformanceChart";
 import { RecentActivity } from "../components/RecentActivity";
-import { mockKpis, mockRecommendations } from "../services/mockDataService";
+import { mockRecommendations } from "../services/mockDataService";
+import { useDataset } from "../contexts/DatasetContext";
+import { useQuery } from "@tanstack/react-query";
+import api from "../services/api";
 
 export function Dashboard() {
   const navigate = useNavigate();
+  const { datasets, currentDatasetId, selectDataset } = useDataset();
   const [accuracy, setAccuracy] = useState(99.2);
+
+  // Fetch jobs to calculate KPI values
+  const { data: jobs = [] } = useQuery({
+    queryKey: ["jobs"],
+    queryFn: async () => {
+      const response = await api.get("/jobs");
+      return response.data;
+    },
+    refetchInterval: 5000, // refresh every 5 seconds to get updated job counts
+  });
+
+  const totalDatasets = datasets.length;
+  const modelsTrained = jobs.filter(j => j.job_type === "training" && j.status === "COMPLETED").length;
+  const reportsGenerated = jobs.filter(j => j.job_type === "report_generation" && j.status === "COMPLETED").length;
 
   // Replicate accuracy fluctuation script from dashboard
   useEffect(() => {
@@ -20,6 +38,37 @@ export function Dashboard() {
 
   return (
     <div className="space-y-12">
+      {/* Header section with active dataset selector */}
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-border-subtle/30 pb-6">
+        <div>
+          <h1 className="font-display-lg text-headline-md text-primary-fixed mb-1">
+            Dashboard
+          </h1>
+          <p className="text-on-surface-variant text-body-sm">
+            Overview of automated analysis pipeline and model operations.
+          </p>
+        </div>
+        {totalDatasets > 0 && (
+          <div className="flex items-center gap-3">
+            <label htmlFor="dataset-select" className="text-body-sm font-medium text-on-surface-variant whitespace-nowrap">
+              Active Dataset:
+            </label>
+            <select
+              id="dataset-select"
+              value={currentDatasetId}
+              onChange={(e) => selectDataset(e.target.value)}
+              className="bg-surface-container border border-border-subtle px-4 py-2.5 rounded-lg text-body-sm font-medium text-white focus:outline-none focus:border-primary-container cursor-pointer"
+            >
+              {datasets.map((d) => (
+                <option key={d.dataset_id} value={d.dataset_id}>
+                  {d.filename}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </header>
+
       {/* Hero Section */}
       <section className="relative rounded-3xl overflow-hidden min-h-[360px] flex items-center shadow-2xl">
         <img 
@@ -62,19 +111,34 @@ export function Dashboard() {
 
       {/* KPI Grid */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-gutter">
-        {mockKpis.map((kpi) => {
-          const isAccuracy = kpi.id === "analysis-accuracy";
-          return (
-            <KPICard
-              key={kpi.id}
-              title={kpi.title}
-              value={isAccuracy ? `${accuracy.toFixed(1)}%` : kpi.value}
-              change={kpi.change}
-              icon={kpi.icon}
-              status={kpi.status}
-            />
-          );
-        })}
+        <KPICard
+          title="Total Datasets"
+          value={totalDatasets.toString()}
+          change={`${datasets.length > 0 ? "+100%" : "0%"} vs initial`}
+          icon="database"
+          status="success"
+        />
+        <KPICard
+          title="Models Trained"
+          value={modelsTrained.toString()}
+          change={`${modelsTrained > 0 ? "+" + modelsTrained : "0"} completed`}
+          icon="model_training"
+          status="success"
+        />
+        <KPICard
+          title="Reports Generated"
+          value={reportsGenerated.toString()}
+          change={`${reportsGenerated > 0 ? "+" + reportsGenerated : "0"} completed`}
+          icon="description"
+          status="pending"
+        />
+        <KPICard
+          title="Analysis Accuracy"
+          value={`${accuracy.toFixed(1)}%`}
+          change="Stable"
+          icon="bolt"
+          status="stable"
+        />
       </section>
 
       {/* Bento Analytics Section */}
@@ -117,17 +181,17 @@ export function Dashboard() {
               <div className="flex-grow space-y-2">
                 <div className="flex justify-between text-label-md">
                   <span className="text-on-surface-variant font-medium text-xs">Structured</span>
-                  <span className="text-primary font-mono text-xs">68%</span>
+                  <span className="text-primary font-mono text-xs">100%</span>
                 </div>
                 <div className="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
-                  <div className="bg-primary-container h-full w-[68%]"></div>
+                  <div className="bg-primary-container h-full w-[100%]"></div>
                 </div>
                 <div className="flex justify-between text-label-md">
                   <span className="text-on-surface-variant font-medium text-xs">Unstructured</span>
-                  <span className="text-primary font-mono text-xs">32%</span>
+                  <span className="text-primary font-mono text-xs">0%</span>
                 </div>
                 <div className="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
-                  <div className="bg-tertiary-container h-full w-[32%]"></div>
+                  <div className="bg-tertiary-container h-full w-[0%]"></div>
                 </div>
               </div>
             </div>
