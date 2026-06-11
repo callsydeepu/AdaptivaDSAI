@@ -76,8 +76,15 @@ async def upload(file: UploadFile = File(...)):
 
 @app.get("/datasets")
 def get_datasets():
-
-    return DatasetService.get_all_datasets()
+    datasets = DatasetService.get_all_datasets()
+    for d in datasets:
+        try:
+            from services.problem_detection_service import ProblemDetectionService
+            p_info = ProblemDetectionService.detect_problem(d["dataset_id"])
+            d["problem_type"] = p_info["problem_type"] if p_info else "Unknown"
+        except Exception:
+            d["problem_type"] = "Unknown"
+    return datasets
 
 @app.get("/datasets/{dataset_id}")
 def get_dataset(dataset_id: str):
@@ -423,6 +430,127 @@ def copilot_suggestions(dataset_id: str):
     if dataset is None:
         raise NotFoundException("Dataset not found")
     return CopilotService.get_suggestions(dataset_id)
+
+
+@app.get("/dashboard/overview")
+def get_dashboard_overview():
+    from services.dataset_service import DatasetService
+    from services.job_service import JobService
+    from core.database import db, db_connected
+    import json
+    import os
+
+    # 1. Total datasets
+    datasets = DatasetService.get_all_datasets()
+    total_datasets = len(datasets)
+
+    # 2. Total models trained
+    jobs = JobService.get_all_jobs()
+    total_models = len([j for j in jobs if j.get("job_type") in ("training", "experiment") and j.get("status") == "COMPLETED"])
+
+    # 3. Total reports generated
+    total_reports = 0
+    report_metadata_file = "data/report_metadata.json"
+    if os.path.exists(report_metadata_file):
+        try:
+            with open(report_metadata_file, "r") as f:
+                reports = json.load(f)
+                total_reports = len(reports)
+        except Exception:
+            pass
+    if db_connected and db is not None:
+        try:
+            total_reports = db.generated_reports.count_documents({})
+        except Exception:
+            pass
+
+    # 4. Total copilot conversations (chats count, not sessions)
+    total_conversations = 0
+    history_file = "data/copilot_history.json"
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, "r") as f:
+                history = json.load(f)
+                total_conversations = len(history)
+        except Exception:
+            pass
+    if db_connected and db is not None:
+        try:
+            total_conversations = db.copilot_conversations.count_documents({})
+        except Exception:
+            pass
+
+    # 5. Job statuses
+    running_jobs = len([j for j in jobs if j.get("status") == "RUNNING"])
+    completed_jobs = len([j for j in jobs if j.get("status") == "COMPLETED"])
+    failed_jobs = len([j for j in jobs if j.get("status") == "FAILED"])
+
+    return {
+        "total_datasets": total_datasets,
+        "total_models": total_models,
+        "total_reports": total_reports,
+        "total_conversations": total_conversations,
+        "running_jobs": running_jobs,
+        "completed_jobs": completed_jobs,
+        "failed_jobs": failed_jobs
+    }
+
+
+@app.get("/copilot/sessions")
+def get_all_copilot_sessions():
+    from core.database import db, db_connected
+    import os
+    import json
+    
+    # Try MongoDB first
+    if db_connected and db is not None:
+        try:
+            cursor = db.copilot_sessions.find().sort("created_at", -1)
+            sessions = list(cursor)
+            for s in sessions:
+                s.pop("_id", None)
+            return sessions
+        except Exception as e:
+            logger.error(f"Error reading all sessions from MongoDB: {e}")
+            
+    # Fallback to local JSON
+    sessions_file = "data/copilot_sessions.json"
+    if os.path.exists(sessions_file):
+        try:
+            with open(sessions_file, "r") as f:
+                sessions = json.load(f)
+            sessions.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            return sessions
+        except Exception:
+            return []
+    return []
+
+
+@app.get("/reports")
+def get_all_reports():
+    import os
+    import json
+    from core.database import db, db_connected
+    
+    # Try MongoDB first
+    if db_connected and db is not None:
+        try:
+            docs = list(db.generated_reports.find())
+            for doc in docs:
+                doc.pop("_id", None)
+            return docs
+        except Exception as e:
+            logger.error(f"Error reading reports from MongoDB: {e}")
+            
+    # Fallback to local JSON
+    report_metadata_file = "data/report_metadata.json"
+    if os.path.exists(report_metadata_file):
+        try:
+            with open(report_metadata_file, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
 
 
 @app.get("/system-logs")

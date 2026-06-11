@@ -148,5 +148,8 @@ class AIInsightsService:
             "dataset_id": dataset_id,
             "data_quality_score": data_quality_score,
             "quality_rating": quality_rating,
+            "missing_values": missing_values,
+            "duplicate_rows": duplicate_rows,
+            "outliers_count": outliers_count,
             "insights": insights
         }

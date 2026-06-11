@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { KPICard } from "../components/KPICard";
 import { PerformanceChart } from "../components/PerformanceChart";
 import { RecentActivity } from "../components/RecentActivity";
-import { mockRecommendations } from "../services/mockDataService";
 import { useDataset } from "../contexts/DatasetContext";
 import { useQuery } from "@tanstack/react-query";
 import api from "../services/api";
@@ -11,30 +10,70 @@ import api from "../services/api";
 export function Dashboard() {
   const navigate = useNavigate();
   const { datasets, currentDatasetId, selectDataset } = useDataset();
-  const [accuracy, setAccuracy] = useState(99.2);
 
-  // Fetch jobs to calculate KPI values
-  const { data: jobs = [] } = useQuery({
-    queryKey: ["jobs"],
+  // 1. Fetch dashboard overview stats
+  const { data: overview = {
+    total_datasets: 0,
+    total_models: 0,
+    total_reports: 0,
+    total_conversations: 0,
+    running_jobs: 0,
+    completed_jobs: 0,
+    failed_jobs: 0
+  }, isLoading: isOverviewLoading } = useQuery({
+    queryKey: ["dashboard-overview"],
     queryFn: async () => {
-      const response = await api.get("/jobs");
+      const response = await api.get("/dashboard/overview");
       return response.data;
     },
-    refetchInterval: 5000, // refresh every 5 seconds to get updated job counts
+    refetchInterval: 5000,
+  });
+
+  // 2. Fetch evaluation results for active dataset (Best Model Widget)
+  const { data: evaluation, error: evaluationError, isLoading: isEvaluationLoading } = useQuery({
+    queryKey: ["evaluation", currentDatasetId],
+    queryFn: async () => {
+      if (!currentDatasetId) return null;
+      const response = await api.get(`/evaluation/${currentDatasetId}`);
+      return response.data;
+    },
+    enabled: !!currentDatasetId,
+    retry: false,
+  });
+
+  // 3. Fetch insights for active dataset (Data Quality and AI Insights)
+  const { data: insightsData, isLoading: isInsightsLoading } = useQuery({
+    queryKey: ["insights", currentDatasetId],
+    queryFn: async () => {
+      if (!currentDatasetId) return null;
+      const response = await api.get(`/datasets/${currentDatasetId}/insights`);
+      return response.data;
+    },
+    enabled: !!currentDatasetId,
+  });
+
+  // 4. Fetch all generated reports
+  const { data: reports = [], isLoading: isReportsLoading } = useQuery({
+    queryKey: ["all-reports"],
+    queryFn: async () => {
+      const response = await api.get("/reports");
+      return response.data;
+    },
+    refetchInterval: 5000,
+  });
+
+  // 5. Fetch preview data for active dataset (Dataset Preview)
+  const { data: preview = [], isLoading: isPreviewLoading } = useQuery({
+    queryKey: ["dataset-preview", currentDatasetId],
+    queryFn: async () => {
+      if (!currentDatasetId) return [];
+      const response = await api.get(`/datasets/${currentDatasetId}/preview`);
+      return response.data;
+    },
+    enabled: !!currentDatasetId,
   });
 
   const totalDatasets = datasets.length;
-  const modelsTrained = jobs.filter(j => j.job_type === "training" && j.status === "COMPLETED").length;
-  const reportsGenerated = jobs.filter(j => j.job_type === "report_generation" && j.status === "COMPLETED").length;
-
-  // Replicate accuracy fluctuation script from dashboard
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const fluctuation = (Math.random() * 0.1).toFixed(2);
-      setAccuracy(99.20 + parseFloat(fluctuation));
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   return (
     <div className="space-y-12">
@@ -55,10 +94,11 @@ export function Dashboard() {
             </label>
             <select
               id="dataset-select"
-              value={currentDatasetId}
+              value={currentDatasetId || ""}
               onChange={(e) => selectDataset(e.target.value)}
               className="bg-surface-container border border-border-subtle px-4 py-2.5 rounded-lg text-body-sm font-medium text-white focus:outline-none focus:border-primary-container cursor-pointer"
             >
+              <option value="" disabled>Select a dataset...</option>
               {datasets.map((d) => (
                 <option key={d.dataset_id} value={d.dataset_id}>
                   {d.filename}
@@ -99,12 +139,6 @@ export function Dashboard() {
               <span className="material-symbols-outlined text-xl">cloud_upload</span>
               Upload Dataset
             </button>
-            <button 
-              onClick={() => navigate('/under-construction')}
-              className="bg-transparent border border-on-surface/20 text-on-surface px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl font-bold hover:bg-surface-container-high active:scale-95 transition-all"
-            >
-              View Demo
-            </button>
           </div>
         </div>
       </section>
@@ -113,30 +147,30 @@ export function Dashboard() {
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-gutter">
         <KPICard
           title="Total Datasets"
-          value={totalDatasets.toString()}
-          change={`${datasets.length > 0 ? "+100%" : "0%"} vs initial`}
+          value={overview.total_datasets.toString()}
+          change="Uploaded datasets"
           icon="database"
           status="success"
         />
         <KPICard
           title="Models Trained"
-          value={modelsTrained.toString()}
-          change={`${modelsTrained > 0 ? "+" + modelsTrained : "0"} completed`}
+          value={overview.total_models.toString()}
+          change={`${overview.completed_jobs} completed`}
           icon="model_training"
           status="success"
         />
         <KPICard
           title="Reports Generated"
-          value={reportsGenerated.toString()}
-          change={`${reportsGenerated > 0 ? "+" + reportsGenerated : "0"} completed`}
+          value={overview.total_reports.toString()}
+          change="Generated PDF files"
           icon="description"
           status="pending"
         />
         <KPICard
-          title="Analysis Accuracy"
-          value={`${accuracy.toFixed(1)}%`}
-          change="Stable"
-          icon="bolt"
+          title="Copilot Chats"
+          value={overview.total_conversations.toString()}
+          change="AI user queries"
+          icon="chat"
           status="stable"
         />
       </section>
@@ -150,71 +184,336 @@ export function Dashboard() {
         <RecentActivity />
       </section>
 
-      {/* Secondary Insights Grid */}
+      {/* Active Dataset Insights section */}
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter">
-        {/* AI Recommendations */}
-        <div className="glass-card p-6 rounded-2xl flex flex-col justify-between min-h-[220px]">
+        {/* Data Quality Widget */}
+        <div className="glass-card p-6 rounded-2xl flex flex-col justify-between min-h-[300px]">
           <div>
-            <h5 className="text-primary font-bold mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary-container">psychology</span>
-              AI Recommendations
+            <h5 className="text-primary font-bold mb-4 flex items-center gap-2 text-sm sm:text-base">
+              <span className="material-symbols-outlined text-primary-container">fact_check</span>
+              Data Quality Analytics
             </h5>
-            <ul className="space-y-3">
-              {mockRecommendations.map((rec, idx) => (
-                <li key={idx} className={`p-3 bg-surface-container rounded-lg border-l-4 ${rec.borderClass}`}>
-                  <p className="text-body-sm text-on-surface text-xs sm:text-sm">{rec.title}</p>
-                </li>
-              ))}
-            </ul>
+            
+            {currentDatasetId ? (
+              isInsightsLoading ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : insightsData ? (
+                <div className="space-y-5">
+                  {/* Score & Rating badge */}
+                  <div className="flex items-center justify-between p-4 bg-surface-container/60 rounded-xl border border-border-subtle/40">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase tracking-wider text-on-surface-variant font-bold">Consolidated Score</span>
+                      <span className="text-2xl font-display-lg font-bold text-white mt-1">
+                        {insightsData.data_quality_score} <span className="text-xs text-on-surface-variant">/ 100</span>
+                      </span>
+                    </div>
+                    <div className="px-3 py-1.5 bg-primary-container/10 border border-primary-container/20 rounded-lg text-primary text-xs font-bold tracking-wider uppercase ai-glow">
+                      {insightsData.quality_rating}
+                    </div>
+                  </div>
+
+                  {/* Summary grid */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-3 bg-surface-container-low rounded-xl text-center border border-border-subtle/20">
+                      <span className="text-lg font-bold text-white font-mono">{insightsData.missing_values || 0}</span>
+                      <p className="text-[9px] uppercase tracking-wider text-on-surface-variant mt-1">Missing</p>
+                    </div>
+                    <div className="p-3 bg-surface-container-low rounded-xl text-center border border-border-subtle/20">
+                      <span className="text-lg font-bold text-white font-mono">{insightsData.duplicate_rows || 0}</span>
+                      <p className="text-[9px] uppercase tracking-wider text-on-surface-variant mt-1">Duplicates</p>
+                    </div>
+                    <div className="p-3 bg-surface-container-low rounded-xl text-center border border-border-subtle/20">
+                      <span className="text-lg font-bold text-white font-mono">{insightsData.outliers_count || 0}</span>
+                      <p className="text-[9px] uppercase tracking-wider text-on-surface-variant mt-1">Outliers</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12 text-on-surface-variant text-xs font-mono">No insights available.</div>
+              )
+            ) : (
+              <div className="text-center py-12 text-on-surface-variant text-xs">Please upload or select a dataset first.</div>
+            )}
           </div>
         </div>
 
-        {/* Dataset Distribution */}
-        <div className="glass-card p-6 rounded-2xl flex flex-col justify-between min-h-[220px]">
+        {/* Best Model Widget */}
+        <div className="glass-card p-6 rounded-2xl flex flex-col justify-between min-h-[300px]">
           <div>
-            <h5 className="text-primary font-bold mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary-container">hub</span>
-              Dataset Distribution
+            <h5 className="text-primary font-bold mb-4 flex items-center gap-2 text-sm sm:text-base">
+              <span className="material-symbols-outlined text-primary-container">military_tech</span>
+              Best Performing Model
             </h5>
-            <div className="flex items-center gap-4 h-24">
-              <div className="relative w-16 h-16 rounded-full border-4 border-primary-container border-t-transparent animate-spin duration-[10s] flex-shrink-0"></div>
-              <div className="flex-grow space-y-2">
-                <div className="flex justify-between text-label-md">
-                  <span className="text-on-surface-variant font-medium text-xs">Structured</span>
-                  <span className="text-primary font-mono text-xs">100%</span>
+            
+            {currentDatasetId ? (
+              isEvaluationLoading ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin"></div>
                 </div>
-                <div className="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
-                  <div className="bg-primary-container h-full w-[100%]"></div>
+              ) : evaluation ? (
+                <div className="space-y-4">
+                  <div className="p-4 bg-surface-container/60 rounded-xl border border-border-subtle/40">
+                    <span className="text-[10px] uppercase tracking-wider text-on-surface-variant font-bold">Best algorithm</span>
+                    <h6 className="text-white font-bold text-base mt-1 truncate">{evaluation.best_model || "None"}</h6>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3.5 bg-surface-container-low rounded-xl border border-border-subtle/20">
+                    <span className="text-xs font-semibold text-on-surface-variant">Performance Score</span>
+                    <span className="text-sm font-bold text-white font-mono">
+                      {evaluation.problem_type === "Classification" 
+                        ? `Accuracy: ${(evaluation.detailed_results?.[evaluation.best_model]?.metrics?.accuracy * 100).toFixed(1)}%`
+                        : `R² Score: ${evaluation.detailed_results?.[evaluation.best_model]?.metrics?.r2_score?.toFixed(3)}`}
+                    </span>
+                  </div>
+
+                  <button 
+                    onClick={() => navigate('/training')}
+                    className="w-full py-2.5 bg-primary-container/10 border border-primary-container/20 rounded-xl text-primary text-xs font-bold hover:bg-primary-container/20 transition-all active:scale-95"
+                  >
+                    View Model Training logs
+                  </button>
                 </div>
-                <div className="flex justify-between text-label-md">
-                  <span className="text-on-surface-variant font-medium text-xs">Unstructured</span>
-                  <span className="text-primary font-mono text-xs">0%</span>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center h-full">
+                  <p className="text-xs text-on-surface-variant">No trained models found for this dataset.</p>
+                  <button 
+                    onClick={() => navigate('/models')}
+                    className="bg-primary-container hover:bg-accent-hover text-on-primary-container font-bold px-4 py-2.5 rounded-lg text-xs transition-all active:scale-95"
+                  >
+                    Train Recommended Models
+                  </button>
                 </div>
-                <div className="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
-                  <div className="bg-tertiary-container h-full w-[0%]"></div>
+              )
+            ) : (
+              <div className="text-center py-12 text-on-surface-variant text-xs">Please upload or select a dataset first.</div>
+            )}
+          </div>
+        </div>
+
+        {/* AI Insights Bullet Panel */}
+        <div className="glass-card p-6 rounded-2xl flex flex-col justify-between min-h-[300px]">
+          <div className="flex flex-col h-full w-full">
+            <h5 className="text-primary font-bold mb-4 flex items-center gap-2 text-sm sm:text-base">
+              <span className="material-symbols-outlined text-primary-container">psychology</span>
+              AI Insights
+            </h5>
+            
+            {currentDatasetId ? (
+              isInsightsLoading ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin"></div>
                 </div>
-              </div>
+              ) : insightsData && insightsData.insights?.length > 0 ? (
+                <div className="flex-grow overflow-y-auto max-h-[180px] custom-scrollbar pr-1">
+                  <ul className="space-y-3">
+                    {insightsData.insights.map((ins, idx) => (
+                      <li key={idx} className="flex gap-2.5 items-start bg-surface-container/30 p-2.5 rounded-lg border border-border-subtle/20">
+                        <span className="text-primary-container select-none text-xs mt-0.5">•</span>
+                        <span className="text-xs text-on-surface leading-normal">{ins}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="text-center py-12 text-on-surface-variant text-xs font-mono">No insights generated.</div>
+              )
+            ) : (
+              <div className="text-center py-12 text-on-surface-variant text-xs">Please upload or select a dataset first.</div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Dataset Preview Section */}
+      {currentDatasetId && (
+        <section className="glass-card p-6 rounded-2xl space-y-4">
+          <div className="flex items-center justify-between">
+            <h5 className="text-primary font-bold flex items-center gap-2 text-sm sm:text-base">
+              <span className="material-symbols-outlined text-primary-container">table_chart</span>
+              Dataset Preview ({datasets.find(d => d.dataset_id === currentDatasetId)?.filename})
+            </h5>
+            <button 
+              onClick={() => navigate('/profiling')}
+              className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
+            >
+              Go to Full Profiling
+              <span className="material-symbols-outlined text-sm">arrow_forward</span>
+            </button>
+          </div>
+
+          {isPreviewLoading ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          ) : preview.length > 0 ? (
+            <div className="overflow-x-auto rounded-xl border border-border-subtle/50 bg-[#0c0d12] custom-scrollbar">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-surface-container border-b border-border-subtle/60 text-primary font-bold">
+                    {Object.keys(preview[0]).map((key) => (
+                      <th key={key} className="px-4 py-3 select-none whitespace-nowrap">{key}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-subtle/20 text-on-surface/90 font-mono">
+                  {preview.map((row, idx) => (
+                    <tr key={idx} className="hover:bg-white/5 transition-colors">
+                      {Object.values(row).map((val, colIdx) => (
+                        <td key={colIdx} className="px-4 py-3 truncate max-w-xs">{val.toString()}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-10 text-on-surface-variant text-xs">
+              No preview data loaded.
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Platform Operations Grid */}
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter">
+        {/* Recent Datasets Card */}
+        <div className="glass-card p-6 rounded-2xl flex flex-col min-h-[350px]">
+          <h5 className="text-primary font-bold mb-4 flex items-center gap-2 text-sm sm:text-base">
+            <span className="material-symbols-outlined text-primary-container">list_alt</span>
+            Recent Datasets
+          </h5>
+          <div className="flex-grow overflow-y-auto max-h-[250px] custom-scrollbar pr-1">
+            <div className="space-y-3">
+              {datasets.map((d) => {
+                const isSelected = d.dataset_id === currentDatasetId;
+                return (
+                  <div 
+                    key={d.dataset_id}
+                    onClick={() => {
+                      selectDataset(d.dataset_id);
+                      navigate('/profiling');
+                    }}
+                    className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all hover:bg-surface-container-high ${
+                      isSelected 
+                        ? "bg-surface-container border-primary-container/60 shadow-lg shadow-primary-container/5"
+                        : "bg-surface-container-low border-border-subtle/40"
+                    }`}
+                  >
+                    <div className="flex flex-col min-w-0 pr-2">
+                      <span className="text-xs font-bold text-white truncate">{d.filename}</span>
+                      <span className="text-[10px] text-on-surface-variant mt-0.5">
+                        {new Date(d.uploaded_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="flex-shrink-0 px-2 py-1 bg-surface-container-highest rounded text-[10px] text-primary-fixed border border-border-subtle/50 font-semibold">
+                      {d.problem_type || "Unknown"}
+                    </div>
+                  </div>
+                );
+              })}
+              {datasets.length === 0 && (
+                <div className="text-center py-12 text-on-surface-variant text-xs">
+                  No datasets uploaded yet.
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Scale analysis promotion card */}
-        <div className="glass-card p-6 rounded-2xl flex flex-col justify-center items-center text-center min-h-[220px]">
-          <div className="w-16 h-16 bg-primary-container/10 rounded-full flex items-center justify-center mb-4 text-primary-container">
-            <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
-              rocket_launch
-            </span>
+        {/* Recent Reports List */}
+        <div className="glass-card p-6 rounded-2xl flex flex-col min-h-[350px]">
+          <h5 className="text-primary font-bold mb-4 flex items-center gap-2 text-sm sm:text-base">
+            <span className="material-symbols-outlined text-primary-container">file_open</span>
+            Generated Reports
+          </h5>
+          <div className="flex-grow overflow-y-auto max-h-[250px] custom-scrollbar pr-1">
+            <div className="space-y-3">
+              {reports.map((r) => {
+                const dataset = datasets.find((d) => d.dataset_id === r.dataset_id);
+                const name = dataset ? dataset.filename : r.filename || "Dataset Report";
+                return (
+                  <div 
+                    key={r.dataset_id}
+                    className="flex items-center justify-between p-3 rounded-xl border border-border-subtle/40 bg-surface-container-low"
+                  >
+                    <div className="flex flex-col min-w-0 pr-2">
+                      <span className="text-xs font-bold text-white truncate">{name.replace(".csv", "")} PDF Report</span>
+                      <span className="text-[10px] text-on-surface-variant mt-0.5">
+                        {r.generated_at ? new Date(r.generated_at).toLocaleDateString() : "Generated"}
+                      </span>
+                    </div>
+                    
+                    <button
+                      onClick={() => window.open(`http://localhost:8000/reports/download/${r.dataset_id}`, "_blank")}
+                      className="p-2 bg-primary-container hover:bg-accent-hover text-on-primary-container rounded-xl flex items-center justify-center transition-all active:scale-95"
+                      title="Download PDF"
+                    >
+                      <span className="material-symbols-outlined text-sm">download</span>
+                    </button>
+                  </div>
+                );
+              })}
+              {reports.length === 0 && (
+                <div className="text-center py-12 text-on-surface-variant text-xs">
+                  No reports generated yet.
+                </div>
+              )}
+            </div>
           </div>
-          <h5 className="text-primary font-bold mb-1">Scale your Analysis</h5>
-          <p className="text-on-surface-variant text-body-sm mb-4 text-xs sm:text-sm">
-            Upgrade to Enterprise for unlimited real-time model training.
-          </p>
-          <button 
-            onClick={() => navigate('/under-construction')}
-            className="bg-on-surface text-background px-6 py-2 rounded-lg font-bold text-label-md hover:bg-primary active:scale-95 transition-colors text-xs font-semibold"
-          >
-            Upgrade Now
-          </button>
+        </div>
+
+        {/* Training Jobs & AI Copilot Quick Actions Card */}
+        <div className="glass-card p-6 rounded-2xl flex flex-col min-h-[350px] justify-between">
+          <div className="space-y-5 h-full flex flex-col justify-between">
+            {/* Jobs Status Summary */}
+            <div className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2">
+                <span className="material-symbols-outlined text-xs">analytics</span>
+                Training Workers
+              </span>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-2.5 bg-surface-container-low rounded-xl text-center border border-border-subtle/20">
+                  <span className="text-sm font-bold text-primary animate-pulse">{overview.running_jobs}</span>
+                  <p className="text-[9px] uppercase tracking-wider text-on-surface-variant mt-0.5">Running</p>
+                </div>
+                <div className="p-2.5 bg-surface-container-low rounded-xl text-center border border-border-subtle/20">
+                  <span className="text-sm font-bold text-green-400">{overview.completed_jobs}</span>
+                  <p className="text-[9px] uppercase tracking-wider text-on-surface-variant mt-0.5">Completed</p>
+                </div>
+                <div className="p-2.5 bg-surface-container-low rounded-xl text-center border border-border-subtle/20">
+                  <span className="text-sm font-bold text-red-400">{overview.failed_jobs}</span>
+                  <p className="text-[9px] uppercase tracking-wider text-on-surface-variant mt-0.5">Failed</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="space-y-2.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2">
+                <span className="material-symbols-outlined text-xs">quick_reference_all</span>
+                Copilot Quick Actions
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { text: "Explain Dataset", q: "Explain the overall characteristics and properties of this dataset" },
+                  { text: "Detect Quality Issues", q: "What data quality issues, missing values, or outliers were detected in this dataset?" },
+                  { text: "Recommend Best Model", q: "Which machine learning algorithms are recommended for this dataset and why?" },
+                  { text: "Summarize Results", q: "Summarize the model training results and evaluation performance metrics" },
+                  { text: "Generate Insights", q: "What key business insights and correlations can we extract from this dataset?" }
+                ].map((act, i) => (
+                  <button
+                    key={i}
+                    onClick={() => navigate(`/copilot?question=${encodeURIComponent(act.q)}`)}
+                    className="px-2.5 py-1.5 bg-surface-container-high hover:bg-primary-container/20 border border-border-subtle/50 text-[10px] text-white rounded-lg transition-all active:scale-95 font-semibold"
+                  >
+                    {act.text}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </div>

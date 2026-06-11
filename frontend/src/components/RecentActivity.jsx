@@ -15,7 +15,15 @@ export function RecentActivity() {
     },
   });
 
-  // Build dynamic activities from datasets and jobs
+  const { data: sessions = [] } = useQuery({
+    queryKey: ["all-sessions"],
+    queryFn: async () => {
+      const response = await api.get("/copilot/sessions");
+      return response.data;
+    },
+  });
+
+  // Build dynamic activities from datasets, jobs and sessions
   const activities = [];
 
   datasets.forEach((d) => {
@@ -52,6 +60,19 @@ export function RecentActivity() {
       time: new Date(j.updated_at || Date.now()),
       icon: icon,
       color: statusColor,
+    });
+  });
+
+  sessions.forEach((s) => {
+    const dataset = datasets.find((d) => d.dataset_id === s.dataset_id);
+    const filename = dataset ? dataset.filename : "Unknown Dataset";
+    activities.push({
+      id: `session-${s.session_id}`,
+      title: "Copilot Session Started",
+      meta: `Dataset: "${filename}"`,
+      time: new Date(s.created_at || Date.now()),
+      icon: "chat",
+      color: "text-warning bg-warning/10",
     });
   });
 

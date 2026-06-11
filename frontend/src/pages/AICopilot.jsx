@@ -86,6 +86,23 @@ export function AICopilot() {
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
+  // Read prefilled question from query parameters (handles HashRouter path syntax)
+  useEffect(() => {
+    const hash = window.location.hash;
+    const queryIdx = hash.indexOf("?");
+    if (queryIdx !== -1) {
+      const searchParams = new URLSearchParams(hash.substring(queryIdx));
+      const question = searchParams.get("question");
+      if (question) {
+        setInputVal(question);
+        
+        // Clean URL parameter so it doesn't repeat on reload
+        const newHash = hash.substring(0, queryIdx);
+        navigate(newHash, { replace: true });
+      }
+    }
+  }, [navigate, setInputVal]);
+
   // Auto-scroll chat messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

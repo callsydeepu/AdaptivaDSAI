@@ -57,10 +57,22 @@ class EvaluationService:
         if not os.path.exists(trained_models_dir):
             raise FileNotFoundError("Training results not found")
 
-        model_files = [
-            f for f in os.listdir(trained_models_dir)
-            if f.startswith(f"{dataset_id}{suffix}_") and f.endswith(".pkl")
+        supported_model_names = [
+            "LogisticRegression", "RandomForestClassifier", "DecisionTreeClassifier",
+            "LinearRegression", "RandomForestRegressor", "DecisionTreeRegressor"
         ]
+        model_files = []
+        for f in os.listdir(trained_models_dir):
+            if not f.endswith(".pkl"):
+                continue
+            if experiment_id is not None:
+                prefix = f"{dataset_id}_{experiment_id}_"
+            else:
+                prefix = f"{dataset_id}_"
+            if f.startswith(prefix):
+                remainder = f[len(prefix):-4]
+                if remainder in supported_model_names:
+                    model_files.append(f)
         if not model_files:
             raise FileNotFoundError("Training results not found")
 
@@ -104,95 +116,96 @@ class EvaluationService:
         detailed_results = {}
 
         # 7. Evaluate Each Model
+        prefix = f"{dataset_id}_{experiment_id}_" if experiment_id else f"{dataset_id}_"
         for file_name in model_files:
             # File name pattern: <dataset_id>_<experiment_id>_<model_name>.pkl or <dataset_id>_<model_name>.pkl
-            model_name = file_name[len(dataset_id) + len(suffix) + 1:-4]
+            model_name = file_name[len(prefix):-4]
             model_path = os.path.join(trained_models_dir, file_name)
 
             try:
                 model = joblib.load(model_path)
-            except Exception:
-                continue
+                y_pred = model.predict(X_test)
+                metrics = {}
+                weaknesses = []
+                feat_imp = {}
 
-            y_pred = model.predict(X_test)
-            metrics = {}
-            weaknesses = []
-            feat_imp = {}
+                if problem_type == "Classification":
+                    acc = float(accuracy_score(y_test, y_pred))
+                    metrics["accuracy"] = acc
 
-            if problem_type == "Classification":
-                acc = float(accuracy_score(y_test, y_pred))
-                metrics["accuracy"] = acc
+                    if classification_type == "Binary":
+                        prec = float(precision_score(y_test, y_pred, zero_division=0))
+                        rec = float(recall_score(y_test, y_pred, zero_division=0))
+                        f1 = float(f1_score(y_test, y_pred, zero_division=0))
+                    else:
+                        prec = float(precision_score(y_test, y_pred, average="weighted", zero_division=0))
+                        rec = float(recall_score(y_test, y_pred, average="weighted", zero_division=0))
+                        f1 = float(f1_score(y_test, y_pred, average="weighted", zero_division=0))
 
-                if classification_type == "Binary":
-                    prec = float(precision_score(y_test, y_pred, zero_division=0))
-                    rec = float(recall_score(y_test, y_pred, zero_division=0))
-                    f1 = float(f1_score(y_test, y_pred, zero_division=0))
+                    metrics["precision"] = prec
+                    metrics["recall"] = rec
+                    metrics["f1_score"] = f1
+
+                    cm = confusion_matrix(y_test, y_pred).tolist()
+                    rep = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+
+                    if rec < 0.70:
+                        weaknesses.append(f"Low recall ({rec:.2f}). Model misses a significant portion of actual positive cases.")
+                    if prec < 0.70:
+                        weaknesses.append(f"Low precision ({prec:.2f}). Model produces a relatively high number of false positives.")
+                    if acc < 0.70:
+                        weaknesses.append(f"Low overall accuracy ({acc:.2f}). Model may underfit the dataset.")
+
+                    detailed_results[model_name] = {
+                        "metrics": metrics,
+                        "confusion_matrix": cm,
+                        "classification_report": rep,
+                        "weaknesses": weaknesses,
+                    }
                 else:
-                    prec = float(precision_score(y_test, y_pred, average="weighted", zero_division=0))
-                    rec = float(recall_score(y_test, y_pred, average="weighted", zero_division=0))
-                    f1 = float(f1_score(y_test, y_pred, average="weighted", zero_division=0))
+                    mae_val = float(mean_absolute_error(y_test, y_pred))
+                    rmse_val = float(np.sqrt(mean_squared_error(y_test, y_pred)))
+                    r2_val = float(r2_score(y_test, y_pred))
 
-                metrics["precision"] = prec
-                metrics["recall"] = rec
-                metrics["f1_score"] = f1
+                    metrics["mae"] = mae_val
+                    metrics["rmse"] = rmse_val
+                    metrics["r2_score"] = r2_val
 
-                cm = confusion_matrix(y_test, y_pred).tolist()
-                rep = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+                    residuals = y_test - y_pred
+                    residuals_stats = {
+                        "mean": float(residuals.mean()),
+                        "median": float(residuals.median()),
+                        "std": float(residuals.std(ddof=0)),
+                        "min": float(residuals.min()),
+                        "max": float(residuals.max()),
+                    }
 
-                if rec < 0.70:
-                    weaknesses.append(f"Low recall ({rec:.2f}). Model misses a significant portion of actual positive cases.")
-                if prec < 0.70:
-                    weaknesses.append(f"Low precision ({prec:.2f}). Model produces a relatively high number of false positives.")
-                if acc < 0.70:
-                    weaknesses.append(f"Low overall accuracy ({acc:.2f}). Model may underfit the dataset.")
+                    if r2_val < 0.50:
+                        weaknesses.append(f"Low R² score ({r2_val:.2f}). Model struggles to explain dataset variance.")
+                    y_mean = y_test.abs().mean()
+                    if y_mean > 0 and residuals_stats["std"] / y_mean > 0.5:
+                        weaknesses.append("High residual standard deviation relative to target mean, indicating high prediction variance.")
 
-                detailed_results[model_name] = {
-                    "metrics": metrics,
-                    "confusion_matrix": cm,
-                    "classification_report": rep,
-                    "weaknesses": weaknesses,
-                }
-            else:
-                mae_val = float(mean_absolute_error(y_test, y_pred))
-                rmse_val = float(np.sqrt(mean_squared_error(y_test, y_pred)))
-                r2_val = float(r2_score(y_test, y_pred))
+                    detailed_results[model_name] = {
+                        "metrics": metrics,
+                        "residual_statistics": residuals_stats,
+                        "weaknesses": weaknesses,
+                    }
 
-                metrics["mae"] = mae_val
-                metrics["rmse"] = rmse_val
-                metrics["r2_score"] = r2_val
-
-                residuals = y_test - y_pred
-                residuals_stats = {
-                    "mean": float(residuals.mean()),
-                    "median": float(residuals.median()),
-                    "std": float(residuals.std(ddof=0)),
-                    "min": float(residuals.min()),
-                    "max": float(residuals.max()),
-                }
-
-                if r2_val < 0.50:
-                    weaknesses.append(f"Low R² score ({r2_val:.2f}). Model struggles to explain dataset variance.")
-                y_mean = y_test.abs().mean()
-                if y_mean > 0 and residuals_stats["std"] / y_mean > 0.5:
-                    weaknesses.append("High residual standard deviation relative to target mean, indicating high prediction variance.")
-
-                detailed_results[model_name] = {
-                    "metrics": metrics,
-                    "residual_statistics": residuals_stats,
-                    "weaknesses": weaknesses,
-                }
-
-            if hasattr(model, "feature_importances_"):
-                importances = model.feature_importances_
-                feature_names = X.columns.tolist()
-                feat_imp = {
-                    name: float(imp)
-                    for name, imp in zip(feature_names, importances)
-                }
-                feat_imp = dict(
-                    sorted(feat_imp.items(), key=lambda item: item[1], reverse=True)
-                )
-                detailed_results[model_name]["feature_importance"] = feat_imp
+                if hasattr(model, "feature_importances_"):
+                    importances = model.feature_importances_
+                    feature_names = X.columns.tolist()
+                    feat_imp = {
+                        name: float(imp)
+                        for name, imp in zip(feature_names, importances)
+                    }
+                    feat_imp = dict(
+                        sorted(feat_imp.items(), key=lambda item: item[1], reverse=True)
+                    )
+                    detailed_results[model_name]["feature_importance"] = feat_imp
+            except Exception as e:
+                logger.error(f"Error evaluating model {model_name}: {e}", exc_info=True)
+                continue
 
         if not detailed_results:
             raise RuntimeError("No models were successfully evaluated")

@@ -42,7 +42,14 @@ class TrainingService:
         suffix = f"_{experiment_id}" if experiment_id else ""
         processed_path = os.path.join(PROCESSED_DIR, f"{dataset_id}{suffix}.csv")
         if not os.path.exists(processed_path):
-            raise FileNotFoundError("Processed dataset not found")
+            if not experiment_id:
+                logger.info(f"Processed dataset not found for dataset {dataset_id}. Triggering feature engineering dynamically.")
+                from services.feature_engineering_service import FeatureEngineeringService
+                fe_res = FeatureEngineeringService.process_dataset(dataset_id)
+                if fe_res is None or not os.path.exists(processed_path):
+                    raise FileNotFoundError("Processed dataset not found")
+            else:
+                raise FileNotFoundError("Processed dataset not found for custom experiment")
 
         df = pd.read_csv(processed_path)
         if df.empty or len(df.columns) == 0 or len(df) == 0:
