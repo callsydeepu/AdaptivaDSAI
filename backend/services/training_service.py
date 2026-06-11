@@ -87,8 +87,15 @@ class TrainingService:
             classification_type = problem_info.get("classification_type")
 
         # 5. Filter supported models
-        supported_class_models = ["LogisticRegression", "RandomForestClassifier", "DecisionTreeClassifier"]
-        supported_reg_models = ["LinearRegression", "RandomForestRegressor", "DecisionTreeRegressor"]
+        supported_class_models = ["LogisticRegression", "RandomForestClassifier", "DecisionTreeClassifier", "XGBoostClassifier", "SVMClassifier"]
+        supported_reg_models = ["LinearRegression", "RandomForestRegressor", "DecisionTreeRegressor", "XGBoostRegressor"]
+
+        if selected_models:
+            for model_name in selected_models:
+                if problem_type == "Classification" and model_name not in supported_class_models:
+                    raise ValueError(f"{model_name} cannot be used for a Classification problem. Please select a Classification model.")
+                elif problem_type == "Regression" and model_name not in supported_reg_models:
+                    raise ValueError(f"{model_name} cannot be used for a Regression problem. Please select a Regression model.")
 
         models_to_train = []
         candidates = selected_models if selected_models else (supported_class_models if problem_type == "Classification" else supported_reg_models)
@@ -184,6 +191,44 @@ class TrainingService:
                 except ValueError:
                     max_depth = None
                 model = DecisionTreeRegressor(max_depth=max_depth, random_state=42)
+            elif model_name == "XGBoostClassifier":
+                from xgboost import XGBClassifier
+                params = hyperparameters.get("XGBoostClassifier", {}) if hyperparameters else {}
+                n_estimators = params.get("n_estimators", 100)
+                max_depth = params.get("max_depth", 6)
+                try:
+                    n_estimators = int(n_estimators) if n_estimators is not None else 100
+                except ValueError:
+                    n_estimators = 100
+                try:
+                    max_depth = int(max_depth) if max_depth is not None else 6
+                except ValueError:
+                    max_depth = 6
+                model = XGBClassifier(n_estimators=n_estimators, max_depth=max_depth, random_state=42, eval_metric="logloss")
+            elif model_name == "SVMClassifier":
+                from sklearn.svm import SVC
+                params = hyperparameters.get("SVMClassifier", {}) if hyperparameters else {}
+                C = params.get("C", 1.0)
+                kernel = params.get("kernel", "rbf")
+                try:
+                    C = float(C) if C is not None else 1.0
+                except ValueError:
+                    C = 1.0
+                model = SVC(C=C, kernel=kernel, random_state=42, probability=True)
+            elif model_name == "XGBoostRegressor":
+                from xgboost import XGBRegressor
+                params = hyperparameters.get("XGBoostRegressor", {}) if hyperparameters else {}
+                n_estimators = params.get("n_estimators", 100)
+                max_depth = params.get("max_depth", 6)
+                try:
+                    n_estimators = int(n_estimators) if n_estimators is not None else 100
+                except ValueError:
+                    n_estimators = 100
+                try:
+                    max_depth = int(max_depth) if max_depth is not None else 6
+                except ValueError:
+                    max_depth = 6
+                model = XGBRegressor(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
             else:
                 continue
 

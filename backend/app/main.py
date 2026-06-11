@@ -918,6 +918,41 @@ def create_experiment(request: ExperimentCreateRequest, background_tasks: Backgr
     if dataset is None:
         raise NotFoundException("Dataset not found")
 
+    # Detect problem type for validation
+    from services.problem_detection_service import ProblemDetectionService
+    problem_info = ProblemDetectionService.detect_problem(request.dataset_id, user_id=current_user["user_id"])
+    if not problem_info:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Could not detect problem type for dataset",
+                "detail": "Could not detect problem type for dataset"
+            }
+        )
+    problem_type = problem_info.get("problem_type")
+
+    supported_class_models = {"LogisticRegression", "RandomForestClassifier", "DecisionTreeClassifier", "XGBoostClassifier", "SVMClassifier"}
+    supported_reg_models = {"LinearRegression", "RandomForestRegressor", "DecisionTreeRegressor", "XGBoostRegressor"}
+
+    if request.selected_models:
+        for model_name in request.selected_models:
+            if problem_type == "Classification" and model_name not in supported_class_models:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "Model type does not match dataset problem type.",
+                        "detail": f"{model_name} cannot be used for a Classification problem. Please select a Classification model."
+                    }
+                )
+            elif problem_type == "Regression" and model_name not in supported_reg_models:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": "Model type does not match dataset problem type.",
+                        "detail": f"{model_name} cannot be used for a Regression problem. Please select a Regression model."
+                    }
+                )
+
     from services.experiment_service import ExperimentService
     try:
         # Create experiment metadata config
