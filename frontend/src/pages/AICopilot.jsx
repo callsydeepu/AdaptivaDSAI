@@ -11,7 +11,7 @@ function renderMarkdown(text) {
   if (!text) return null;
   const lines = text.split("\n");
   return (
-    <div className="space-y-2 text-xs sm:text-sm text-on-surface leading-relaxed">
+    <div className="space-y-2 text-xs sm:text-sm text-on-surface leading-relaxed break-words" style={{ overflowWrap: "anywhere" }}>
       {lines.map((line, idx) => {
         let content = line;
         
@@ -68,7 +68,8 @@ function renderMarkdown(text) {
 export function AICopilot() {
   const navigate = useNavigate();
   const { currentDatasetId, currentDataset } = useDataset();
-  const [activeTab, setActiveTab] = useState("chat"); // 'context' or 'chat'
+  const [isSessionsOpen, setIsSessionsOpen] = useState(false);
+  const [isContextExpanded, setIsContextExpanded] = useState(false);
   
   const { 
     messages, 
@@ -85,6 +86,11 @@ export function AICopilot() {
   
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+
+  // Initialize sessions view based on screen width
+  useEffect(() => {
+    setIsSessionsOpen(window.innerWidth >= 1440);
+  }, []);
 
   // Read prefilled question from query parameters (handles HashRouter path syntax)
   useEffect(() => {
@@ -207,6 +213,105 @@ export function AICopilot() {
     }
   };
 
+  // Reusable component layout for Dataset Context panel
+  const renderDatasetContext = (isMobileOrTablet = false) => {
+    return (
+      <div className={`flex flex-col gap-6 ${isMobileOrTablet ? "p-1" : ""}`}>
+        {!isMobileOrTablet && (
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="font-headline-sm text-headline-sm text-primary-fixed">Active Context</h2>
+            <span className="px-2.5 py-1 rounded bg-surface-container text-on-surface-variant text-[10px] uppercase font-bold tracking-wider border border-border-subtle max-w-[200px] truncate">
+              {currentDataset?.filename}
+            </span>
+          </div>
+        )}
+
+        {/* Bento Quality Rating */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="col-span-1 sm:col-span-2 glass-panel p-4 rounded-xl flex flex-col gap-2 relative overflow-hidden group">
+            <div className="ai-shimmer absolute inset-0 opacity-20 pointer-events-none"></div>
+            <div className="flex items-center gap-2 text-primary-fixed">
+              <span className="material-symbols-outlined text-sm">verified_user</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider">Quality Report</span>
+            </div>
+            <div className="flex items-end justify-between">
+              <p className="text-2xl font-display-lg text-white">
+                {insights ? `${insights.data_quality_score}%` : "Calculating..."}
+              </p>
+              <span className="text-xs text-green-400 font-bold">
+                {insights?.quality_rating || "Computing"}
+              </span>
+            </div>
+            <p className="text-body-sm text-on-surface-variant text-xs truncate">
+              {insights?.insights?.[0] || "Data health is being processed."}
+            </p>
+          </div>
+
+          {/* Metrics cards */}
+          <div className="glass-panel p-4 rounded-xl flex flex-col gap-2 border border-border-subtle hover:border-primary-fixed/50 transition-all cursor-pointer">
+            <span className="material-symbols-outlined text-primary-fixed text-xl">view_column</span>
+            <p className="text-[10px] text-on-surface-variant font-medium">Dimension</p>
+            <p className="text-lg font-display-lg text-white">
+              {profile ? `${profile.columns} Cols` : "Calculating..."}
+            </p>
+            <p className="text-[9px] text-on-surface-variant truncate">
+              {profile ? `${profile.rows} total records` : ""}
+            </p>
+          </div>
+
+          <div className="glass-panel p-4 rounded-xl flex flex-col gap-2 border border-border-subtle hover:border-primary-fixed/50 transition-all cursor-pointer">
+            <span className="material-symbols-outlined text-primary-fixed text-xl">warning</span>
+            <p className="text-[10px] text-on-surface-variant font-medium">Outliers</p>
+            <p className="text-lg font-display-lg text-white">
+              {totalOutliers} Found
+            </p>
+            <p className="text-[9px] text-on-surface-variant truncate">
+              Across numeric indexes
+            </p>
+          </div>
+        </div>
+
+        {/* Sample Table */}
+        <div className="space-y-2 max-w-full overflow-hidden">
+          <p className="font-label-md text-on-surface-variant flex items-center gap-2 text-xs uppercase tracking-wider">
+            <span className="material-symbols-outlined text-sm">table_chart</span> 
+            Dataset Preview
+          </p>
+          <div className="max-w-full overflow-x-auto">
+            <DatasetPreviewTable type="copilot" data={previewData} />
+          </div>
+        </div>
+
+        {/* Recommended actions suggestions */}
+        <div className="space-y-3">
+          <p className="font-label-md text-on-surface-variant flex items-center gap-2 text-xs uppercase tracking-wider">
+            <span className="material-symbols-outlined text-sm">cleaning_services</span> 
+            Recommended Actions
+          </p>
+          <div className="flex flex-col gap-2">
+            {dynamicActions.map((act, idx) => (
+              <div 
+                key={idx}
+                onClick={() => sendMessage(act.title)}
+                className="p-3 rounded-lg border border-border-subtle bg-surface-container-low hover:border-primary-container group transition-all cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-body-sm font-bold text-xs sm:text-sm text-white group-hover:text-primary-container transition-colors">
+                    {act.title}
+                  </p>
+                  <span className="material-symbols-outlined text-primary-container opacity-0 group-hover:opacity-100 transition-all text-sm">
+                    auto_fix
+                  </span>
+                </div>
+                <p className="text-[10px] text-on-surface-variant mt-1">{act.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (!currentDatasetId) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] text-center space-y-4 glass-card rounded-2xl p-8">
@@ -226,214 +331,179 @@ export function AICopilot() {
   }
 
   return (
-    <div className="h-[calc(100vh-80px)] -mx-margin-mobile md:-mx-12 -mt-4 overflow-hidden flex flex-col border border-border-subtle bg-background rounded-2xl">
-      {/* Mobile Tab Switcher */}
-      <div className="lg:hidden flex border-b border-border-subtle bg-surface-container-low p-2 gap-2 flex-shrink-0">
-        <button 
-          onClick={() => setActiveTab("context")}
-          className={`flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all ${
-            activeTab === "context" 
-              ? "bg-primary-container text-on-primary-container shadow-md" 
-              : "text-on-surface-variant hover:text-white"
-          }`}
-        >
-          Active Context
-        </button>
-        <button 
-          onClick={() => setActiveTab("chat")}
-          className={`flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all ${
-            activeTab === "chat" 
-              ? "bg-primary-container text-on-primary-container shadow-md" 
-              : "text-on-surface-variant hover:text-white"
-          }`}
-        >
-          Copilot Assistant
-        </button>
-      </div>
+    <div className="h-[calc(100vh-80px)] -mx-margin-mobile md:-mx-12 -mt-4 overflow-hidden flex flex-col border border-border-subtle bg-background rounded-2xl relative min-h-0">
+      
+      {/* Backdrop overlay for Sessions drawer (Mobile/Tablet) */}
+      {isSessionsOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm lg:hidden animate-fade-in"
+          onClick={() => setIsSessionsOpen(false)}
+        />
+      )}
 
-      {/* Main Panels */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel: Active Context */}
-        <section 
-          className={`w-full lg:w-2/5 p-6 border-r border-border-subtle bg-surface-dim flex flex-col gap-6 overflow-y-auto custom-scrollbar ${
-            activeTab === "context" ? "flex" : "hidden lg:flex"
-          }`}
-        >
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="font-headline-sm text-headline-sm text-primary-fixed">Active Context</h2>
-            <span className="px-2.5 py-1 rounded bg-surface-container text-on-surface-variant text-[10px] uppercase font-bold tracking-wider border border-border-subtle max-w-[200px] truncate">
-              {currentDataset?.filename}
-            </span>
-          </div>
-
-          {/* Bento Quality Rating */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2 glass-panel p-4 rounded-xl flex flex-col gap-2 relative overflow-hidden group">
-              <div className="ai-shimmer absolute inset-0 opacity-20 pointer-events-none"></div>
-              <div className="flex items-center gap-2 text-primary-fixed">
-                <span className="material-symbols-outlined text-sm">verified_user</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider">Quality Report</span>
-              </div>
-              <div className="flex items-end justify-between">
-                <p className="text-2xl font-display-lg">
-                  {insights ? `${insights.data_quality_score}%` : "Calculating..."}
-                </p>
-                <span className="text-xs text-green-400 font-bold">
-                  {insights?.quality_rating || "Computing"}
+      {/* Drawer slide-over for Sessions (Mobile/Tablet) */}
+      <div className={`fixed inset-y-0 left-0 w-64 bg-surface-container-low border-r border-border-subtle z-50 transform transition-transform duration-300 flex flex-col lg:hidden ${
+        isSessionsOpen ? "translate-x-0" : "-translate-x-full"
+      }`}>
+        <div className="p-4 border-b border-border-subtle flex items-center justify-between flex-shrink-0">
+          <span className="text-sm font-bold text-white">Chat Sessions</span>
+          <button 
+            onClick={() => setIsSessionsOpen(false)}
+            className="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-white"
+          >
+            <span className="material-symbols-outlined text-sm">close</span>
+          </button>
+        </div>
+        <div className="p-3 border-b border-border-subtle flex-shrink-0">
+          <button 
+            onClick={() => {
+              createNewSession();
+              setIsSessionsOpen(false);
+            }}
+            className="w-full bg-primary-container text-on-primary-container py-2 px-3 rounded-lg text-xs font-bold hover:bg-accent-hover transition-all active:scale-95 flex items-center justify-center gap-1.5"
+          >
+            <span className="material-symbols-outlined text-sm">add</span>
+            New Session
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+          {sessions.map((session) => (
+            <button 
+              key={session.session_id}
+              onClick={() => {
+                selectSession(session.session_id);
+                setIsSessionsOpen(false);
+              }}
+              className={`w-full text-left p-2.5 rounded-lg text-[11px] transition-all flex items-center justify-between group ${
+                activeSessionId === session.session_id 
+                  ? "bg-surface-container-high border border-border-subtle text-primary-fixed font-bold" 
+                  : "text-on-surface-variant hover:bg-surface-container hover:text-white"
+              }`}
+            >
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="material-symbols-outlined text-xs">chat_bubble</span>
+                <span className="truncate">
+                  {new Date(session.created_at).toLocaleString([], { 
+                    month: 'short', 
+                    day: 'numeric', 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                  })}
                 </span>
               </div>
-              <p className="text-body-sm text-on-surface-variant text-xs truncate">
-                {insights?.insights?.[0] || "Data health is being processed."}
-              </p>
-            </div>
+            </button>
+          ))}
+        </div>
+      </div>
 
-            {/* Metrics cards */}
-            <div className="glass-panel p-4 rounded-xl flex flex-col gap-2 border border-border-subtle hover:border-primary-fixed/50 transition-all cursor-pointer">
-              <span className="material-symbols-outlined text-primary-fixed text-xl">view_column</span>
-              <p className="text-[10px] text-on-surface-variant font-medium">Dimension</p>
-              <p className="text-lg font-display-lg text-white">
-                {profile ? `${profile.columns} Cols` : "Calculating..."}
-              </p>
-              <p className="text-[9px] text-on-surface-variant truncate">
-                {profile ? `${profile.rows} total records` : ""}
-              </p>
-            </div>
-
-            <div className="glass-panel p-4 rounded-xl flex flex-col gap-2 border border-border-subtle hover:border-primary-fixed/50 transition-all cursor-pointer">
-              <span className="material-symbols-outlined text-primary-fixed text-xl">warning</span>
-              <p className="text-[10px] text-on-surface-variant font-medium">Outliers</p>
-              <p className="text-lg font-display-lg text-white">
-                {totalOutliers} Found
-              </p>
-              <p className="text-[9px] text-on-surface-variant truncate">
-                Across numeric indexes
-              </p>
-            </div>
-          </div>
-
-          {/* Sample Table */}
-          <div className="space-y-2">
-            <p className="font-label-md text-on-surface-variant flex items-center gap-2 text-xs uppercase tracking-wider">
-              <span className="material-symbols-outlined text-sm">table_chart</span> 
-              Dataset Preview
-            </p>
-            <DatasetPreviewTable type="copilot" data={previewData} />
-          </div>
-
-          {/* Recommended actions suggestions */}
-          <div className="space-y-3">
-            <p className="font-label-md text-on-surface-variant flex items-center gap-2 text-xs uppercase tracking-wider">
-              <span className="material-symbols-outlined text-sm">cleaning_services</span> 
-              Recommended Actions
-            </p>
-            <div className="flex flex-col gap-2">
-              {dynamicActions.map((act, idx) => (
-                <div 
-                  key={idx}
-                  onClick={() => sendMessage(act.title)}
-                  className="p-3 rounded-lg border border-border-subtle bg-surface-container-low hover:border-primary-container group transition-all cursor-pointer"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-body-sm font-bold text-xs sm:text-sm text-white group-hover:text-primary-container transition-colors">
-                      {act.title}
-                    </p>
-                    <span className="material-symbols-outlined text-primary-container opacity-0 group-hover:opacity-100 transition-all text-sm">
-                      auto_fix
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-on-surface-variant mt-1">{act.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+      {/* Main Panels Layout */}
+      <div className="flex-grow flex overflow-hidden min-h-0 relative">
+        
+        {/* Left Panel: Active Context (Visible on Desktop/Laptop) */}
+        <section className="hidden lg:flex w-full lg:w-[32%] xl:w-[28%] max-w-[400px] p-6 border-r border-border-subtle bg-surface-dim flex-col gap-6 overflow-y-auto custom-scrollbar flex-shrink-0">
+          {renderDatasetContext(false)}
         </section>
 
         {/* Right Panel: Chat Interface */}
-        <section 
-          className={`flex-1 bg-surface-container-lowest flex flex-row relative overflow-hidden ${
-            activeTab === "chat" ? "flex" : "hidden lg:flex"
-          }`}
-        >
-          {/* Chat Sessions Sidebar */}
-          <div className="w-52 border-r border-border-subtle bg-surface-container-low flex flex-col flex-shrink-0 h-full hidden md:flex">
-            {/* New Session Button */}
-            <div className="p-3 border-b border-border-subtle flex-shrink-0">
-              <button 
-                onClick={createNewSession}
-                className="w-full bg-primary-container text-on-primary-container py-2 px-3 rounded-lg text-xs font-bold hover:bg-accent-hover transition-all active:scale-95 flex items-center justify-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-sm">add</span>
-                New Session
-              </button>
-            </div>
-            
-            {/* Sessions List */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-              {sessions.map((session) => (
+        <section className="flex-grow bg-surface-container-lowest flex flex-row relative overflow-hidden h-full min-h-0">
+          
+          {/* Chat Sessions Sidebar (Desktop/Laptop toggleable) */}
+          {isSessionsOpen && (
+            <div className="w-56 border-r border-border-subtle bg-surface-container-low flex flex-col flex-shrink-0 h-full hidden lg:flex">
+              {/* New Session Button */}
+              <div className="p-3 border-b border-border-subtle flex-shrink-0">
                 <button 
-                  key={session.session_id}
-                  onClick={() => selectSession(session.session_id)}
-                  className={`w-full text-left p-2.5 rounded-lg text-[11px] transition-all flex items-center justify-between group ${
-                    activeSessionId === session.session_id 
-                      ? "bg-surface-container-high border border-border-subtle text-primary-fixed font-bold" 
-                      : "text-on-surface-variant hover:bg-surface-container hover:text-white"
-                  }`}
+                  onClick={createNewSession}
+                  className="w-full bg-primary-container text-on-primary-container py-2 px-3 rounded-lg text-xs font-bold hover:bg-accent-hover transition-all active:scale-95 flex items-center justify-center gap-1.5"
                 >
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="material-symbols-outlined text-xs">chat_bubble</span>
-                    <span className="truncate">
-                      {new Date(session.created_at).toLocaleString([], { 
-                        month: 'short', 
-                        day: 'numeric', 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      })}
-                    </span>
-                  </div>
+                  <span className="material-symbols-outlined text-sm">add</span>
+                  New Session
                 </button>
-              ))}
+              </div>
+              
+              {/* Sessions List */}
+              <div className="flex-grow overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                {sessions.map((session) => (
+                  <button 
+                    key={session.session_id}
+                    onClick={() => selectSession(session.session_id)}
+                    className={`w-full text-left p-2.5 rounded-lg text-[11px] transition-all flex items-center justify-between group ${
+                      activeSessionId === session.session_id 
+                        ? "bg-surface-container-high border border-border-subtle text-primary-fixed font-bold" 
+                        : "text-on-surface-variant hover:bg-surface-container hover:text-white"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="material-symbols-outlined text-xs">chat_bubble</span>
+                      <span className="truncate">
+                        {new Date(session.created_at).toLocaleString([], { 
+                          month: 'short', 
+                          day: 'numeric', 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
+                        })}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Main Conversational Board */}
-          <div className="flex-1 flex flex-col relative h-full overflow-hidden">
+          <div className="flex-grow flex flex-col relative h-full overflow-hidden min-w-0">
+            
             {/* Chat Header */}
-            <div className="h-16 px-6 border-b border-border-subtle flex items-center justify-between glass-panel absolute top-0 w-full z-10">
-              <div className="flex items-center gap-3">
-                <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></div>
-                <h3 className="font-display-lg text-body-lg font-bold text-white text-sm sm:text-base">Copilot Assistant</h3>
+            <div className="h-16 px-4 sm:px-6 border-b border-border-subtle flex items-center justify-between glass-panel flex-shrink-0 bg-surface-container-lowest/80 backdrop-blur-md z-10">
+              <div className="flex items-center gap-3 min-w-0">
+                {/* Toggle History Button (visible on smaller screens to open drawer, on larger screen to toggle sidebar) */}
+                <button
+                  onClick={() => setIsSessionsOpen(!isSessionsOpen)}
+                  className="p-2 rounded bg-surface-container border border-border-subtle text-white hover:bg-surface-container-high active:scale-95 transition-all flex items-center justify-center flex-shrink-0"
+                  title="Chat History"
+                >
+                  <span className="material-symbols-outlined text-base">history</span>
+                </button>
+                <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse flex-shrink-0"></div>
+                <h3 className="font-display-lg text-body-lg font-bold text-white text-xs sm:text-sm truncate">Copilot Assistant</h3>
               </div>
               <div className="flex items-center gap-2">
-                {/* Mobile Session Switcher */}
-                {sessions.length > 0 && (
-                  <select
-                    value={activeSessionId || ""}
-                    onChange={(e) => selectSession(e.target.value)}
-                    className="md:hidden bg-surface-container border border-border-subtle text-white text-[10px] rounded px-2 py-1 focus:outline-none max-w-[120px] truncate"
-                  >
-                    {sessions.map((s) => (
-                      <option key={s.session_id} value={s.session_id}>
-                        {new Date(s.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {/* Mobile New Session Action */}
-                <button
-                  onClick={createNewSession}
-                  className="md:hidden p-1.5 rounded bg-surface-container border border-border-subtle text-white hover:bg-surface-container-high active:scale-95 transition-all flex items-center justify-center"
-                  title="New Session"
-                >
-                  <span className="material-symbols-outlined text-xs">add</span>
-                </button>
-                <span className="hidden sm:flex text-on-surface-variant text-[10px] sm:text-xs uppercase font-bold items-center gap-1">
+                <span className="text-on-surface-variant text-[9px] sm:text-xs uppercase font-bold flex items-center gap-1">
                   <span className="material-symbols-outlined text-sm">lock</span> Secure Chat
                 </span>
               </div>
             </div>
 
             {/* Chat Messages Scrolling Area */}
-            <div className="flex-1 overflow-y-auto p-6 pt-24 pb-36 flex flex-col gap-8 custom-scrollbar">
+            <div className="flex-grow overflow-y-auto p-4 sm:p-6 flex flex-col gap-8 custom-scrollbar min-h-0">
+              
+              {/* Collapsible Dataset Context at the top of messages on Tablet and Mobile */}
+              <div className="lg:hidden w-full flex-shrink-0 space-y-4">
+                <div 
+                  className="glass-panel p-4 rounded-xl border border-border-subtle flex items-center justify-between cursor-pointer hover:border-primary-fixed/50 transition-all bg-surface-dim"
+                  onClick={() => setIsContextExpanded(!isContextExpanded)}
+                >
+                  <div className="flex items-center gap-2 text-primary-fixed">
+                    <span className="material-symbols-outlined text-sm">analytics</span>
+                    <span className="text-xs font-bold uppercase tracking-wider">Dataset Context</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] text-on-surface-variant font-mono">
+                      {insights ? `Quality: ${insights.data_quality_score}%` : "..."} | {profile ? `${profile.columns} Cols` : "..."}
+                    </span>
+                    <span className="material-symbols-outlined text-sm text-on-surface-variant">
+                      {isContextExpanded ? "expand_less" : "expand_more"}
+                    </span>
+                  </div>
+                </div>
+                
+                {isContextExpanded && (
+                  <div className="p-3 border border-border-subtle/50 rounded-xl bg-surface-container-lowest/30 animate-fadeIn">
+                    {renderDatasetContext(true)}
+                  </div>
+                )}
+              </div>
+
               {error && (
                 <div className="bg-error/10 border border-error/20 rounded-xl p-4 flex gap-3 items-center text-error mx-auto max-w-lg">
                   <span className="material-symbols-outlined text-xl">error</span>
@@ -444,31 +514,31 @@ export function AICopilot() {
               {messages.map((msg) => (
                 <div 
                   key={msg.id}
-                  className={`flex gap-4 max-w-[85%] ${
+                  className={`flex gap-3 sm:gap-4 max-w-[90%] sm:max-w-[85%] ${
                     msg.isAi ? "self-start" : "self-end flex-row-reverse"
                   }`}
                 >
                   {/* Avatar */}
-                  <div className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center border ${
+                  <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex-shrink-0 flex items-center justify-center border ${
                     msg.isAi 
                       ? "bg-primary-container text-on-primary-container shadow-lg shadow-primary-container/20 border-transparent" 
                       : "bg-surface-container border-border-subtle text-on-surface-variant"
                   }`}>
-                    <span className="material-symbols-outlined text-xl">
+                    <span className="material-symbols-outlined text-base sm:text-xl">
                       {msg.isAi ? "auto_awesome" : "person"}
                     </span>
                   </div>
 
                   {/* Message Body */}
-                  <div className="space-y-4 w-full">
-                    <div className={`p-4 sm:p-5 rounded-2xl shadow-md border ${
+                  <div className="space-y-4 w-full min-w-0">
+                    <div className={`p-4 sm:p-5 rounded-2xl shadow-md border break-words ${
                       msg.isAi 
                         ? "rounded-tl-none bg-surface-container-high border-border-subtle text-on-surface" 
                         : "rounded-tr-none bg-primary text-background font-medium border-transparent shadow-xl"
                     }`}>
                       {/* Render message with markdown formatting support */}
                       {msg.isAi ? renderMarkdown(msg.content) : (
-                        <p className="leading-relaxed text-sm whitespace-pre-line">
+                        <p className="leading-relaxed text-xs sm:text-sm whitespace-pre-line break-words" style={{ overflowWrap: "anywhere" }}>
                           {msg.content}
                         </p>
                       )}
@@ -481,7 +551,7 @@ export function AICopilot() {
                           <button 
                             key={sIdx}
                             onClick={() => sendMessage(sug)}
-                            className="px-3 py-1.5 rounded-full border border-border-subtle text-[11px] font-bold text-on-surface-variant hover:border-primary-container hover:text-primary-container hover:bg-primary-container/5 transition-all active:scale-95"
+                            className="px-3 py-1.5 rounded-full border border-border-subtle text-[10px] sm:text-[11px] font-bold text-on-surface-variant hover:border-primary-container hover:text-primary-container hover:bg-primary-container/5 transition-all active:scale-95"
                           >
                             {sug}
                           </button>
@@ -494,42 +564,42 @@ export function AICopilot() {
 
               {/* AI thinking shim */}
               {isTyping && (
-                <div className="flex gap-4 max-w-[85%] self-start animate-fade-in">
-                  <div className="w-10 h-10 rounded-full bg-primary-container flex-shrink-0 flex items-center justify-center animate-pulse">
-                    <span className="material-symbols-outlined text-on-primary-container">auto_awesome</span>
+                <div className="flex gap-3 sm:gap-4 max-w-[85%] self-start animate-fade-in">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-primary-container flex-shrink-0 flex items-center justify-center animate-pulse">
+                    <span className="material-symbols-outlined text-on-primary-container text-base sm:text-xl">auto_awesome</span>
                   </div>
                   <div className="p-4 rounded-2xl rounded-tl-none bg-surface-container-high border border-border-subtle flex gap-1.5 items-center">
-                    <div className="w-2 h-2 rounded-full bg-primary-container animate-bounce"></div>
-                    <div className="w-2 h-2 rounded-full bg-primary-container animate-bounce [animation-delay:0.2s]"></div>
-                    <div className="w-2 h-2 rounded-full bg-primary-container animate-bounce [animation-delay:0.4s]"></div>
+                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-primary-container animate-bounce"></div>
+                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-primary-container animate-bounce [animation-delay:0.2s]"></div>
+                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-primary-container animate-bounce [animation-delay:0.4s]"></div>
                   </div>
                 </div>
               )}
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Floating Dock Container */}
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-3xl z-10">
-              <div className="glass-panel p-2 rounded-2xl shadow-2xl flex flex-col gap-2 border border-white/5 bg-surface-container-high/90 backdrop-blur-xl">
+            {/* Input Floating Dock Container (Standard flex flow to prevent overlaps) */}
+            <div className="w-full p-4 border-t border-border-subtle/30 bg-surface-container-lowest/80 backdrop-blur-xl flex justify-center flex-shrink-0">
+              <div className="w-full max-w-3xl glass-panel p-2 rounded-2xl shadow-2xl flex flex-col gap-2 border border-white/5 bg-surface-container-high/90">
                 <div className="flex items-center gap-2 px-2">
                   <textarea 
                     ref={textareaRef}
                     value={inputVal}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyPress}
-                    className="flex-1 bg-transparent border-none focus:ring-0 text-body-md py-3 resize-none custom-scrollbar max-h-24 text-white text-sm sm:text-base focus:outline-none placeholder-on-surface-variant/75"
+                    className="flex-grow bg-transparent border-none focus:ring-0 text-white text-xs sm:text-sm py-2 resize-none custom-scrollbar max-h-24 focus:outline-none placeholder-on-surface-variant/75"
                     placeholder="Ask AI Copilot to analyze, clean, or explain dataset trends..." 
                     rows={1}
                   />
                   <button 
                     onClick={handleSend}
                     disabled={!inputVal.trim() || isTyping}
-                    className="p-2.5 bg-primary-container text-on-primary-container rounded-xl hover:bg-accent-hover transition-all disabled:opacity-35 disabled:cursor-not-allowed active:scale-95 flex-shrink-0"
+                    className="p-2 sm:p-2.5 bg-primary-container text-on-primary-container rounded-xl hover:bg-accent-hover transition-all disabled:opacity-35 disabled:cursor-not-allowed active:scale-95 flex-shrink-0 flex items-center justify-center"
                   >
-                    <span className="material-symbols-outlined text-lg sm:text-xl font-bold">send</span>
+                    <span className="material-symbols-outlined text-sm sm:text-base font-bold">send</span>
                   </button>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 pb-1 border-t border-border-subtle/30 pt-2 text-[8px] sm:text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 pb-1 border-t border-border-subtle/30 pt-2 text-[8px] sm:text-[9px] font-bold text-on-surface-variant uppercase tracking-wider">
                   <div className="flex items-center gap-1">
                     <span className="material-symbols-outlined text-xs">database</span> 
                     Using Model: <span className="text-primary-fixed font-mono">Llama-3.1-Instant</span>
