@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { useDataset } from "../contexts/DatasetContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { mlService } from "../services/mlService";
+import api from "../services/api";
 
 export function Training() {
   const navigate = useNavigate();
@@ -19,6 +20,55 @@ export function Training() {
   const targetDatasetId = urlDatasetId || currentDatasetId;
 
   const [launchError, setLaunchError] = useState("");
+  const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
+  const [isManualColabModalOpen, setIsManualColabModalOpen] = useState(false);
+  const [isExportingColab, setIsExportingColab] = useState(false);
+  const [githubTokenConfigured, setGithubTokenConfigured] = useState(false);
+
+  useEffect(() => {
+    const checkGithubToken = async () => {
+      try {
+        const res = await api.get("/settings");
+        setGithubTokenConfigured(!!res.data.GITHUB_TOKEN_CONFIGURED);
+      } catch (err) {
+        console.error("Failed to load settings in Training page:", err);
+      }
+    };
+    checkGithubToken();
+  }, []);
+
+  const handleDownloadNotebook = (mode = "clean") => {
+    window.open(`${api.defaults.baseURL || "http://localhost:8000"}/datasets/${targetDatasetId}/export/notebook?mode=${mode}`, "_blank");
+    setIsExportDropdownOpen(false);
+  };
+
+  const handleDownloadScript = () => {
+    window.open(`${api.defaults.baseURL || "http://localhost:8000"}/datasets/${targetDatasetId}/export/script?mode=clean`, "_blank");
+    setIsExportDropdownOpen(false);
+  };
+
+  const handleOpenInColab = async () => {
+    setIsExportDropdownOpen(false);
+    if (!githubTokenConfigured) {
+      setIsManualColabModalOpen(true);
+      return;
+    }
+    
+    setIsExportingColab(true);
+    try {
+      const res = await api.post(`/datasets/${targetDatasetId}/export/colab`, { mode: "clean" });
+      if (res.data && res.data.colab_url) {
+        window.open(res.data.colab_url, "_blank");
+      } else {
+        alert("Failed to get Colab redirect URL from server.");
+      }
+    } catch (err) {
+      console.error("Failed to export to Google Colab:", err);
+      alert(err.response?.data?.detail || "Failed to export to Google Colab. Please check your GitHub token permissions.");
+    } finally {
+      setIsExportingColab(false);
+    }
+  };
 
   // Sync state with URL search params changes
   useEffect(() => {
@@ -108,7 +158,7 @@ export function Training() {
           </p>
         </div>
         {hasResults && !isJobRunning && (
-          <div>
+          <div className="flex items-center gap-3 relative">
             <button
               onClick={handleRetrain}
               disabled={trainMutation.isPending}
@@ -117,6 +167,50 @@ export function Training() {
               <span className="material-symbols-outlined text-sm">replay</span>
               {trainMutation.isPending ? "Starting..." : "Retrain Models"}
             </button>
+
+            <div className="relative">
+              <button
+                onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
+                className="bg-primary hover:bg-accent-hover text-background px-6 py-2.5 rounded-lg transition-all font-bold flex items-center gap-2 active:scale-95 text-sm shadow-lg shadow-primary/10"
+              >
+                <span className="material-symbols-outlined text-sm font-bold">download</span>
+                Export Analysis
+                <span className="material-symbols-outlined text-xs">keyboard_arrow_down</span>
+              </button>
+              
+              {isExportDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-60 rounded-xl bg-surface-container-high border border-border-subtle shadow-2xl z-50 py-1.5 animate-fadeIn">
+                  <button
+                    onClick={() => handleDownloadNotebook("clean")}
+                    type="button"
+                    className="w-full text-left px-4 py-2 hover:bg-primary-container/20 text-white text-xs flex items-center gap-2.5 font-semibold transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-sm text-primary-fixed">description</span> Download Notebook (Clean)
+                  </button>
+                  <button
+                    onClick={() => handleDownloadNotebook("learning")}
+                    type="button"
+                    className="w-full text-left px-4 py-2 hover:bg-primary-container/20 text-white text-xs flex items-center gap-2.5 font-semibold transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-sm text-primary-fixed">school</span> Download Notebook (Learning)
+                  </button>
+                  <button
+                    onClick={handleDownloadScript}
+                    type="button"
+                    className="w-full text-left px-4 py-2 hover:bg-primary-container/20 text-white text-xs flex items-center gap-2.5 font-semibold transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-sm text-primary-fixed">code</span> Download Python Script
+                  </button>
+                  <button
+                    onClick={handleOpenInColab}
+                    type="button"
+                    className="w-full text-left px-4 py-2 hover:bg-primary-container/20 text-white text-xs flex items-center gap-2.5 font-semibold transition-colors"
+                  >
+                    <span className="text-sm">🚀</span> Open in Google Colab
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </header>
@@ -455,6 +549,55 @@ export function Training() {
                 </>
               )}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Gist Upload Spinner Overlay */}
+      {isExportingColab && (
+        <div className="fixed inset-0 bg-black/70 flex flex-col items-center justify-center z-50 gap-4 backdrop-blur-sm animate-fadeIn">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-sm font-bold text-white tracking-wide">Exporting Pipeline to GitHub Gist & Redirecting...</p>
+        </div>
+      )}
+
+      {/* Manual Google Colab Instructions Modal */}
+      {isManualColabModalOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-surface-container-high border border-border-subtle rounded-2xl p-6 max-w-md w-full space-y-5 shadow-2xl">
+            <div className="flex items-center gap-3 text-primary-fixed">
+              <span className="material-symbols-outlined text-3xl">info</span>
+              <h3 className="text-lg font-bold text-white">Google Colab Manual Upload</h3>
+            </div>
+            <p className="text-xs text-on-surface-variant leading-relaxed">
+              A GitHub Personal Access Token (PAT) was not detected in System Settings. Colab requires notebooks to be hosted on public repositories or Gists to open them automatically.
+            </p>
+            <div className="bg-background/60 p-3.5 rounded-xl border border-border-subtle/50 space-y-2.5">
+              <p className="text-[10px] text-primary-fixed font-bold uppercase tracking-wider">Instructions:</p>
+              <ol className="list-decimal pl-4 text-[11px] text-white space-y-1.5 leading-normal">
+                <li>Click <b>Download Notebook</b> below to save the notebook locally.</li>
+                <li>Visit <a href="https://colab.research.google.com" target="_blank" rel="noopener noreferrer" className="text-primary-fixed hover:underline font-bold">colab.research.google.com</a>.</li>
+                <li>Go to the <b>Upload</b> tab in the popup dialog and upload your downloaded file.</li>
+                <li><i>Tip: Add a GitHub PAT with `gist` scope in settings to enable 1-click Colab export!</i></li>
+              </ol>
+            </div>
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => setIsManualColabModalOpen(false)}
+                className="px-4 py-2 bg-surface-container text-white text-xs font-semibold rounded-lg hover:bg-surface-container-high active:scale-95 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  handleDownloadNotebook();
+                  setIsManualColabModalOpen(false);
+                }}
+                className="px-4 py-2 bg-primary text-background text-xs font-bold rounded-lg hover:bg-accent-hover active:scale-95 transition-all shadow-md"
+              >
+                Download & Open Colab
+              </button>
+            </div>
           </div>
         </div>
       )}

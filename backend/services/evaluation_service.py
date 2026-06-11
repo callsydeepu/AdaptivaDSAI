@@ -25,9 +25,9 @@ from core.logger import logger
 class EvaluationService:
 
     @staticmethod
-    def evaluate_dataset(dataset_id: str, experiment_id: str = None):
+    def evaluate_dataset(dataset_id: str, experiment_id: str = None, user_id: str = None):
         # 1. Load Dataset Metadata
-        dataset = DatasetService.get_dataset_by_id(dataset_id)
+        dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=user_id)
         if dataset is None:
             return None
 
@@ -36,7 +36,7 @@ class EvaluationService:
         split_ratio = 0.8
         if experiment_id is not None:
             from repositories.experiment_repository import ExperimentRepository
-            experiment = ExperimentRepository.get_experiment(experiment_id)
+            experiment = ExperimentRepository.get_experiment(experiment_id, user_id=user_id)
             if experiment:
                 target_column = experiment.get("target_column")
                 split_ratio = experiment.get("split_ratio", 0.8)
@@ -98,7 +98,7 @@ class EvaluationService:
                     problem_type = "Regression"
                     classification_type = "N/A"
         else:
-            problem_info = ProblemDetectionService.detect_problem(dataset_id)
+            problem_info = ProblemDetectionService.detect_problem(dataset_id, user_id=user_id)
             if problem_info is None:
                 return None
             problem_type = problem_info.get("problem_type")
@@ -263,7 +263,7 @@ class EvaluationService:
         }
 
         # 9. Storage
-        TrainingRepository.save_evaluation_result(evaluation_data)
+        TrainingRepository.save_evaluation_result(evaluation_data, user_id=user_id)
         logger.info(f"Model evaluation completed successfully for dataset {dataset_id} (experiment {experiment_id}). Best model: {best_model}")
 
         return evaluation_data

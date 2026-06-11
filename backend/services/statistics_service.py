@@ -7,25 +7,11 @@ METADATA_FILE = "data/metadata.json"
 class StatisticsService:
 
     @staticmethod
-    def get_statistics(dataset_id):
-
-        with open(METADATA_FILE, "r") as f:
-            datasets = json.load(f)
-
-        dataset = None
-
-        for item in datasets:
-
-            if item["dataset_id"] == dataset_id:
-                dataset = item
-                break
-
-        if dataset is None:
+    def get_statistics(dataset_id, user_id=None):
+        from services.dataset_service import DatasetService
+        df = DatasetService.get_dataframe(dataset_id, user_id=user_id)
+        if df is None:
             return None
-
-        file_path = f"uploads/{dataset['stored_filename']}"
-
-        df = pd.read_csv(file_path)
 
         numeric_df = df.select_dtypes(include="number")
 

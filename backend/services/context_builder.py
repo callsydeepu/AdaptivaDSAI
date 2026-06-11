@@ -9,14 +9,14 @@ class ContextBuilder:
     """
 
     @staticmethod
-    def build_prompt_package(dataset_id: str, session_id: str, question: str) -> dict:
+    def build_prompt_package(dataset_id: str, session_id: str, question: str, user_id=None) -> dict:
         logger.info(f"Building prompt package for dataset {dataset_id}, session {session_id}")
         
         # 1. Retrieve recent dialogue logs (conversational memory context)
         recent_chats = MemoryService.get_recent_context(session_id, limit=6) # fetch last 6 queries for context
         
         # 2. Retrieve relevant context blocks (pruned dataset context)
-        relevant_dataset = RetrievalService.get_relevant_context(dataset_id, question)
+        relevant_dataset = RetrievalService.get_relevant_context(dataset_id, question, user_id=user_id)
         if relevant_dataset is None:
             logger.warning(f"Failed to fetch dataset context for dataset {dataset_id}")
             relevant_dataset = {}

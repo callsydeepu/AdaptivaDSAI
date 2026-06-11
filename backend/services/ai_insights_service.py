@@ -13,35 +13,35 @@ class AIInsightsService:
     """
 
     @staticmethod
-    def get_insights(dataset_id: str):
+    def get_insights(dataset_id: str, user_id=None):
         logger.info(f"Generating AI Insights for dataset: {dataset_id}")
         
         # 1. Retrieve dataset metadata to verify existence
-        dataset = DatasetService.get_dataset_by_id(dataset_id)
+        dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=user_id)
         if dataset is None:
             logger.warning(f"Failed to generate insights: Dataset {dataset_id} not found.")
             return None
 
         # 2. Gather profiling details
-        profile = ProfilingService.profile_dataset(dataset_id)
+        profile = ProfilingService.profile_dataset(dataset_id, user_id=user_id)
         if profile is None:
             logger.warning(f"Failed to generate insights: Profiling result for {dataset_id} not available.")
             return None
 
         # 3. Gather EDA details
-        eda = EDAService.analyze_dataset(dataset_id)
+        eda = EDAService.analyze_dataset(dataset_id, user_id=user_id)
         if eda is None:
             logger.warning(f"Failed to generate insights: EDA result for {dataset_id} not available.")
             return None
 
         # 4. Gather problem detection details
-        problem = ProblemDetectionService.detect_problem(dataset_id)
+        problem = ProblemDetectionService.detect_problem(dataset_id, user_id=user_id)
         if problem is None:
             logger.warning(f"Failed to generate insights: Problem detection result for {dataset_id} not available.")
             return None
 
         # 5. Gather evaluation details (this can be None if training hasn't run yet)
-        evaluation = TrainingRepository.get_evaluation_result(dataset_id)
+        evaluation = TrainingRepository.get_evaluation_result(dataset_id, user_id=user_id)
 
         # 6. Compute Data Quality Score
         rows = profile.get("rows", 0)

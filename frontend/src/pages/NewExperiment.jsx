@@ -30,6 +30,142 @@ export function NewExperiment() {
     DecisionTreeRegressor: true,
   });
 
+  const [hyperparameters, setHyperparameters] = useState({
+    LogisticRegression: { max_iter: 1000, C: 1.0 },
+    RandomForestClassifier: { n_estimators: 100, max_depth: "" },
+    DecisionTreeClassifier: { max_depth: "" },
+    LinearRegression: { fit_intercept: true },
+    RandomForestRegressor: { n_estimators: 100, max_depth: "" },
+    DecisionTreeRegressor: { max_depth: "" }
+  });
+
+  const updateHyperparam = (model, param, val) => {
+    setHyperparameters((prev) => ({
+      ...prev,
+      [model]: {
+        ...prev[model],
+        [param]: val
+      }
+    }));
+  };
+
+  const renderHyperparamsInputs = (modelName) => {
+    switch (modelName) {
+      case "LogisticRegression":
+        return (
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-on-surface-variant uppercase">Max Iterations</label>
+              <input
+                type="number"
+                value={hyperparameters.LogisticRegression.max_iter}
+                onChange={(e) => updateHyperparam("LogisticRegression", "max_iter", e.target.value)}
+                className="w-full bg-surface-container border border-border-subtle rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-primary-fixed"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-on-surface-variant uppercase">Reg. Strength (C)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={hyperparameters.LogisticRegression.C}
+                onChange={(e) => updateHyperparam("LogisticRegression", "C", e.target.value)}
+                className="w-full bg-surface-container border border-border-subtle rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-primary-fixed"
+              />
+            </div>
+          </div>
+        );
+      case "RandomForestClassifier":
+        return (
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-on-surface-variant uppercase">Estimators</label>
+              <input
+                type="number"
+                value={hyperparameters.RandomForestClassifier.n_estimators}
+                onChange={(e) => updateHyperparam("RandomForestClassifier", "n_estimators", e.target.value)}
+                className="w-full bg-surface-container border border-border-subtle rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-primary-fixed"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-on-surface-variant uppercase">Max Depth</label>
+              <input
+                type="number"
+                placeholder="None"
+                value={hyperparameters.RandomForestClassifier.max_depth}
+                onChange={(e) => updateHyperparam("RandomForestClassifier", "max_depth", e.target.value)}
+                className="w-full bg-surface-container border border-border-subtle rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-primary-fixed"
+              />
+            </div>
+          </div>
+        );
+      case "DecisionTreeClassifier":
+        return (
+          <div className="space-y-1">
+            <label className="text-[9px] font-bold text-on-surface-variant uppercase">Max Depth (empty for None)</label>
+            <input
+              type="number"
+              placeholder="None"
+              value={hyperparameters.DecisionTreeClassifier.max_depth}
+              onChange={(e) => updateHyperparam("DecisionTreeClassifier", "max_depth", e.target.value)}
+              className="w-full bg-surface-container border border-border-subtle rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-primary-fixed"
+            />
+          </div>
+        );
+      case "LinearRegression":
+        return (
+          <div className="flex items-center justify-between p-2 rounded bg-surface-container/40 w-full">
+            <span className="text-[10px] font-bold text-on-surface-variant uppercase">Fit Intercept</span>
+            <input
+              type="checkbox"
+              checked={hyperparameters.LinearRegression.fit_intercept}
+              onChange={(e) => updateHyperparam("LinearRegression", "fit_intercept", e.target.checked)}
+              className="w-4 h-4 rounded text-primary border-border-subtle bg-surface-container cursor-pointer"
+            />
+          </div>
+        );
+      case "RandomForestRegressor":
+        return (
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-on-surface-variant uppercase">Estimators</label>
+              <input
+                type="number"
+                value={hyperparameters.RandomForestRegressor.n_estimators}
+                onChange={(e) => updateHyperparam("RandomForestRegressor", "n_estimators", e.target.value)}
+                className="w-full bg-surface-container border border-border-subtle rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-primary-fixed"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-on-surface-variant uppercase">Max Depth</label>
+              <input
+                type="number"
+                placeholder="None"
+                value={hyperparameters.RandomForestRegressor.max_depth}
+                onChange={(e) => updateHyperparam("RandomForestRegressor", "max_depth", e.target.value)}
+                className="w-full bg-surface-container border border-border-subtle rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-primary-fixed"
+              />
+            </div>
+          </div>
+        );
+      case "DecisionTreeRegressor":
+        return (
+          <div className="space-y-1">
+            <label className="text-[9px] font-bold text-on-surface-variant uppercase">Max Depth (empty for None)</label>
+            <input
+              type="number"
+              placeholder="None"
+              value={hyperparameters.DecisionTreeRegressor.max_depth}
+              onChange={(e) => updateHyperparam("DecisionTreeRegressor", "max_depth", e.target.value)}
+              className="w-full bg-surface-container border border-border-subtle rounded-lg px-2.5 py-1.5 text-[11px] text-white focus:outline-none focus:border-primary-fixed"
+            />
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
   // Async task tracking
   const [experimentId, setExperimentId] = useState(null);
   const [jobId, setJobId] = useState(null);
@@ -117,12 +253,29 @@ export function NewExperiment() {
     Object.keys(selectedModels).forEach((name) => {
       if (selectedModels[name]) {
         // Only include models fitting the task type
-        if (activeTaskType === "classification" && name.endsWith("Classifier") || name === "LogisticRegression") {
+        if (activeTaskType === "classification" && (name.endsWith("Classifier") || name === "LogisticRegression")) {
           modelsList.push(name);
-        } else if (activeTaskType === "regression" && name.endsWith("Regressor") || name === "LinearRegression") {
+        } else if (activeTaskType === "regression" && (name.endsWith("Regressor") || name === "LinearRegression")) {
           modelsList.push(name);
         }
       }
+    });
+
+    // Process hyperparameters
+    const processedHyperparams = {};
+    Object.keys(hyperparameters).forEach((model) => {
+      processedHyperparams[model] = {};
+      Object.keys(hyperparameters[model]).forEach((param) => {
+        let val = hyperparameters[model][param];
+        if (param === "max_depth") {
+          val = val === "" ? null : parseInt(val);
+        } else if (param === "max_iter" || param === "n_estimators") {
+          val = val === "" ? null : parseInt(val);
+        } else if (param === "C") {
+          val = val === "" ? null : parseFloat(val);
+        }
+        processedHyperparams[model][param] = val;
+      });
     });
 
     const payload = {
@@ -132,6 +285,7 @@ export function NewExperiment() {
       imputation_strategy: imputationStrategy,
       selected_models: modelsList,
       outlier_threshold: outliersEnabled ? parseFloat(outlierThreshold) : null,
+      hyperparameters: processedHyperparams
     };
 
     try {
@@ -363,7 +517,7 @@ export function NewExperiment() {
             <label className="text-[11px] font-bold text-on-surface-variant uppercase">Algorithms to Train</label>
             
             {activeTaskType === "classification" ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[
                   { name: "LogisticRegression", label: "Logistic Regression", desc: "Linear model for binary classifications" },
                   { name: "RandomForestClassifier", label: "Random Forest Classifier", desc: "Decision tree ensemble for complex nonlinear splits" },
@@ -372,27 +526,43 @@ export function NewExperiment() {
                   <div 
                     key={m.name}
                     onClick={() => toggleModel(m.name)}
-                    className={`p-4 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
+                    className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col gap-3 ${
                       selectedModels[m.name] 
                         ? "border-primary-container bg-primary-container/5" 
                         : "border-border-subtle bg-surface-container-low hover:border-border-subtle/80"
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={selectedModels[m.name]}
-                      readOnly
-                      className="w-4 h-4 rounded text-primary border-border-subtle bg-surface-container mt-0.5 cursor-pointer"
-                    />
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-xs font-bold text-white">{m.label}</span>
-                      <span className="text-[10px] text-on-surface-variant">{m.desc}</span>
+                    <div className="flex items-start gap-3 w-full">
+                      <input
+                        type="checkbox"
+                        checked={selectedModels[m.name]}
+                        readOnly
+                        className="w-4 h-4 rounded text-primary border-border-subtle bg-surface-container mt-0.5 cursor-pointer"
+                      />
+                      <div className="flex flex-col gap-0.5 flex-1 text-left">
+                        <span className="text-xs font-bold text-white">{m.label}</span>
+                        <span className="text-[10px] text-on-surface-variant">{m.desc}</span>
+                      </div>
                     </div>
+                    
+                    {selectedModels[m.name] && (
+                      <div className="w-full mt-1 pt-2 border-t border-border-subtle/30" onClick={(e) => e.stopPropagation()}>
+                        <details className="group">
+                          <summary className="text-[10px] font-bold text-primary-fixed uppercase cursor-pointer flex items-center justify-between hover:text-white select-none">
+                            <span>Advanced Configuration</span>
+                            <span className="material-symbols-outlined text-xs transition-transform group-open:rotate-180">expand_more</span>
+                          </summary>
+                          <div className="mt-3.5 space-y-3.5 animate-fade-in text-left">
+                            {renderHyperparamsInputs(m.name)}
+                          </div>
+                        </details>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[
                   { name: "LinearRegression", label: "Linear Regression", desc: "Simple linear trendline fitting" },
                   { name: "RandomForestRegressor", label: "Random Forest Regressor", desc: "Decision tree ensemble fitting complex variances" },
@@ -401,22 +571,38 @@ export function NewExperiment() {
                   <div 
                     key={m.name}
                     onClick={() => toggleModel(m.name)}
-                    className={`p-4 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
+                    className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col gap-3 ${
                       selectedModels[m.name] 
                         ? "border-primary-container bg-primary-container/5" 
                         : "border-border-subtle bg-surface-container-low hover:border-border-subtle/80"
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={selectedModels[m.name]}
-                      readOnly
-                      className="w-4 h-4 rounded text-primary border-border-subtle bg-surface-container mt-0.5 cursor-pointer"
-                    />
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-xs font-bold text-white">{m.label}</span>
-                      <span className="text-[10px] text-on-surface-variant">{m.desc}</span>
+                    <div className="flex items-start gap-3 w-full">
+                      <input
+                        type="checkbox"
+                        checked={selectedModels[m.name]}
+                        readOnly
+                        className="w-4 h-4 rounded text-primary border-border-subtle bg-surface-container mt-0.5 cursor-pointer"
+                      />
+                      <div className="flex flex-col gap-0.5 flex-1 text-left">
+                        <span className="text-xs font-bold text-white">{m.label}</span>
+                        <span className="text-[10px] text-on-surface-variant">{m.desc}</span>
+                      </div>
                     </div>
+
+                    {selectedModels[m.name] && (
+                      <div className="w-full mt-1 pt-2 border-t border-border-subtle/30" onClick={(e) => e.stopPropagation()}>
+                        <details className="group">
+                          <summary className="text-[10px] font-bold text-primary-fixed uppercase cursor-pointer flex items-center justify-between hover:text-white select-none">
+                            <span>Advanced Configuration</span>
+                            <span className="material-symbols-outlined text-xs transition-transform group-open:rotate-180">expand_more</span>
+                          </summary>
+                          <div className="mt-3.5 space-y-3.5 animate-fade-in text-left">
+                            {renderHyperparamsInputs(m.name)}
+                          </div>
+                        </details>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

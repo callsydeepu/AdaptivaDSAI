@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -35,6 +35,10 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+from auth.routes import router as auth_router
+app.include_router(auth_router)
+from auth.jwt_service import get_current_user
+
 
 @app.exception_handler(NotFoundException)
 async def not_found_exception_handler(request: Request, exc: NotFoundException):
@@ -63,7 +67,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
 
     if not file.filename.endswith(".csv"):
         raise HTTPException(
@@ -71,25 +75,25 @@ async def upload(file: UploadFile = File(...)):
             detail="Only CSV files allowed"
         )
 
-    return await DatasetService.upload_dataset(file)
+    return await DatasetService.upload_dataset(file, user_id=current_user["user_id"])
 
 
 @app.get("/datasets")
-def get_datasets():
-    datasets = DatasetService.get_all_datasets()
+def get_datasets(current_user: dict = Depends(get_current_user)):
+    datasets = DatasetService.get_all_datasets(user_id=current_user["user_id"])
     for d in datasets:
         try:
             from services.problem_detection_service import ProblemDetectionService
-            p_info = ProblemDetectionService.detect_problem(d["dataset_id"])
+            p_info = ProblemDetectionService.detect_problem(d["dataset_id"], user_id=current_user["user_id"])
             d["problem_type"] = p_info["problem_type"] if p_info else "Unknown"
         except Exception:
             d["problem_type"] = "Unknown"
     return datasets
 
 @app.get("/datasets/{dataset_id}")
-def get_dataset(dataset_id: str):
+def get_dataset(dataset_id: str, current_user: dict = Depends(get_current_user)):
 
-    dataset = DatasetService.get_dataset_by_id(dataset_id)
+    dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
 
     if dataset is None:
         raise NotFoundException("Dataset not found")
@@ -97,16 +101,147 @@ def get_dataset(dataset_id: str):
     return dataset
 
 @app.get("/datasets/{dataset_id}/preview")
-def get_dataset_preview(dataset_id: str):
-    df = DatasetService.get_dataframe(dataset_id)
+def get_dataset_preview(dataset_id: str, current_user: dict = Depends(get_current_user)):
+    df = DatasetService.get_dataframe(dataset_id, user_id=current_user["user_id"])
     if df is None:
         raise NotFoundException("Dataset not found")
     return df.head(5).fillna("").to_dict(orient="records")
 
-@app.delete("/datasets/{dataset_id}")
-def delete_dataset(dataset_id: str):
 
-    deleted = DatasetService.delete_dataset(dataset_id)
+@app.get("/datasets/{dataset_id}/correlation-plot")
+def get_correlation_plot(dataset_id: str, current_user: dict = Depends(get_current_user)):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import io
+    import numpy as np
+    from fastapi.responses import StreamingResponse
+    
+    df = DatasetService.get_dataframe(dataset_id, user_id=current_user["user_id"])
+    if df is None:
+        raise NotFoundException("Dataset not found")
+        
+    numeric_df = df.select_dtypes(include=[np.number])
+    
+    # Set up matplotlib style
+    plt.style.use("dark_background")
+    fig, ax = plt.subplots(figsize=(8, 6))
+    fig.patch.set_facecolor('#0f172a') # Slate-900 style color for dark mode harmony
+    ax.set_facecolor('#0f172a')
+    
+    if numeric_df.shape[1] < 2:
+        ax.text(0.5, 0.5, "Not enough numeric columns\nto compute correlation", 
+                horizontalalignment='center', verticalalignment='center',
+                transform=ax.transAxes, color='white', fontsize=14)
+        ax.set_xticks([])
+        ax.set_yticks([])
+    else:
+        corr = numeric_df.corr()
+        sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", linewidths=0.5, ax=ax, cbar=True)
+        
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", bbox_inches="tight", dpi=100, facecolor=fig.get_facecolor(), edgecolor='none')
+    buf.seek(0)
+    plt.close(fig)
+    
+    return StreamingResponse(buf, media_type="image/png")
+
+
+@app.get("/datasets/{dataset_id}/export/notebook")
+def export_notebook(dataset_id: str, mode: str = "clean", current_user: dict = Depends(get_current_user)):
+    import json
+    import io
+    from fastapi.responses import StreamingResponse
+    from services.notebook_generator_service import NotebookGeneratorService
+    
+    try:
+        notebook = NotebookGeneratorService.generate_notebook_dict(dataset_id, mode=mode, user_id=current_user["user_id"])
+        notebook_str = json.dumps(notebook, indent=2)
+        
+        dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
+        clean_name = dataset.get("filename", "dataset.csv").rsplit(".", 1)[0]
+        filename = f"{clean_name}_Workflow_{mode.capitalize()}.ipynb" if mode != "clean" else f"{clean_name}_Workflow.ipynb"
+        
+        return StreamingResponse(
+            io.BytesIO(notebook_str.encode("utf-8")),
+            media_type="application/x-ipynb+json",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except ValueError as ve:
+        raise NotFoundException(str(ve))
+    except Exception as e:
+        logger.error(f"Failed to export notebook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/datasets/{dataset_id}/export/script")
+def export_script(dataset_id: str, mode: str = "clean", current_user: dict = Depends(get_current_user)):
+    import io
+    from fastapi.responses import StreamingResponse
+    from services.notebook_generator_service import NotebookGeneratorService
+    
+    try:
+        script_str = NotebookGeneratorService.generate_python_script(dataset_id, mode=mode, user_id=current_user["user_id"])
+        
+        dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
+        clean_name = dataset.get("filename", "dataset.csv").rsplit(".", 1)[0]
+        filename = f"{clean_name}_workflow_{mode}.py" if mode != "clean" else f"{clean_name}_workflow.py"
+        
+        return StreamingResponse(
+            io.BytesIO(script_str.encode("utf-8")),
+            media_type="text/x-python",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except ValueError as ve:
+        raise NotFoundException(str(ve))
+    except Exception as e:
+        logger.error(f"Failed to export script: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ColabExportRequest(BaseModel):
+    github_token: str = None
+    mode: str = "clean"
+
+
+@app.post("/datasets/{dataset_id}/export/colab")
+def export_colab(dataset_id: str, request: ColabExportRequest = None, current_user: dict = Depends(get_current_user)):
+    from services.notebook_generator_service import NotebookGeneratorService
+    import core.config as config
+    
+    try:
+        token = None
+        mode = "clean"
+        if request:
+            if request.github_token:
+                token = request.github_token
+            if request.mode:
+                mode = request.mode
+                
+        if not token and config.GITHUB_TOKEN:
+            token = config.GITHUB_TOKEN
+            
+        if not token:
+            raise HTTPException(
+                status_code=400,
+                detail="GitHub Personal Access Token is required for 1-click Colab export. Please configure it in settings."
+            )
+            
+        colab_url = NotebookGeneratorService.upload_to_gist(dataset_id, token, mode=mode, user_id=current_user["user_id"])
+        return {"colab_url": colab_url}
+    except ValueError as ve:
+        raise NotFoundException(str(ve))
+    except Exception as e:
+        logger.error(f"Failed to export to Google Colab: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/datasets/{dataset_id}")
+def delete_dataset(dataset_id: str, current_user: dict = Depends(get_current_user)):
+
+    deleted = DatasetService.delete_dataset(dataset_id, user_id=current_user["user_id"])
 
     if not deleted:
         raise HTTPException(
@@ -119,9 +254,9 @@ def delete_dataset(dataset_id: str):
     }
 
 @app.get("/datasets/{dataset_id}/profile")
-def profile_dataset(dataset_id: str):
+def profile_dataset(dataset_id: str, current_user: dict = Depends(get_current_user)):
 
-    profile = ProfilingService.profile_dataset(dataset_id)
+    profile = ProfilingService.profile_dataset(dataset_id, user_id=current_user["user_id"])
 
     if profile is None:
         raise HTTPException(
@@ -132,10 +267,10 @@ def profile_dataset(dataset_id: str):
     return profile
 
 @app.get("/datasets/{dataset_id}/statistics")
-def get_statistics(dataset_id: str):
+def get_statistics(dataset_id: str, current_user: dict = Depends(get_current_user)):
 
     statistics = StatisticsService.get_statistics(
-        dataset_id
+        dataset_id, user_id=current_user["user_id"]
     )
 
     if statistics is None:
@@ -147,10 +282,10 @@ def get_statistics(dataset_id: str):
     return statistics
 
 @app.get("/datasets/{dataset_id}/eda")
-def get_eda(dataset_id: str):
+def get_eda(dataset_id: str, current_user: dict = Depends(get_current_user)):
 
     eda = EDAService.analyze_dataset(
-        dataset_id
+        dataset_id, user_id=current_user["user_id"]
     )
 
     if eda is None:
@@ -163,10 +298,10 @@ def get_eda(dataset_id: str):
 
 
 @app.get("/problem-detection/{dataset_id}")
-def detect_problem(dataset_id: str):
+def detect_problem(dataset_id: str, current_user: dict = Depends(get_current_user)):
 
     try:
-        result = ProblemDetectionService.detect_problem(dataset_id)
+        result = ProblemDetectionService.detect_problem(dataset_id, user_id=current_user["user_id"])
 
         if result is None:
             raise HTTPException(
@@ -194,10 +329,10 @@ def detect_problem(dataset_id: str):
 
 
 @app.get("/feature-engineering/{dataset_id}")
-def process_dataset(dataset_id: str):
+def process_dataset(dataset_id: str, current_user: dict = Depends(get_current_user)):
 
     try:
-        result = FeatureEngineeringService.process_dataset(dataset_id)
+        result = FeatureEngineeringService.process_dataset(dataset_id, user_id=current_user["user_id"])
 
         if result is None:
             raise HTTPException(
@@ -225,10 +360,10 @@ def process_dataset(dataset_id: str):
 
 
 @app.get("/model-recommendation/{dataset_id}")
-def recommend_models(dataset_id: str):
+def recommend_models(dataset_id: str, current_user: dict = Depends(get_current_user)):
 
     try:
-        result = ModelRecommendationService.recommend_models(dataset_id)
+        result = ModelRecommendationService.recommend_models(dataset_id, user_id=current_user["user_id"])
 
         if result is None:
             raise HTTPException(
@@ -261,21 +396,21 @@ def recommend_models(dataset_id: str):
 
 
 @app.post("/train/{dataset_id}")
-def train_models(dataset_id: str, background_tasks: BackgroundTasks):
-    dataset = DatasetService.get_dataset_by_id(dataset_id)
+def train_models(dataset_id: str, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
     if dataset is None:
         raise NotFoundException("Dataset not found")
         
-    job_id = JobService.create_job(dataset_id, "training")
-    background_tasks.add_task(JobService.run_training_job, job_id, dataset_id)
+    job_id = JobService.create_job(dataset_id, "training", user_id=current_user["user_id"])
+    background_tasks.add_task(JobService.run_training_job, job_id, dataset_id, current_user["user_id"])
     return {"job_id": job_id}
 
 
 @app.get("/evaluation/{dataset_id}")
-def get_evaluation(dataset_id: str):
+def get_evaluation(dataset_id: str, current_user: dict = Depends(get_current_user)):
 
     try:
-        result = EvaluationService.evaluate_dataset(dataset_id)
+        result = EvaluationService.evaluate_dataset(dataset_id, user_id=current_user["user_id"])
 
         if result is None:
             raise HTTPException(
@@ -309,24 +444,28 @@ def get_evaluation(dataset_id: str):
 
 
 @app.get("/reports/generate/{dataset_id}")
-def generate_report(dataset_id: str, background_tasks: BackgroundTasks):
-    dataset = DatasetService.get_dataset_by_id(dataset_id)
+def generate_report(dataset_id: str, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
     if dataset is None:
         raise NotFoundException("Dataset not found")
         
     # Verify that evaluation results exist before queueing report job
     from repositories.training_repository import TrainingRepository
-    evaluation = TrainingRepository.get_evaluation_result(dataset_id)
+    evaluation = TrainingRepository.get_evaluation_result(dataset_id, user_id=current_user["user_id"])
     if evaluation is None:
         raise NotFoundException("Evaluation results not found")
         
-    job_id = JobService.create_job(dataset_id, "report_generation")
-    background_tasks.add_task(JobService.run_report_job, job_id, dataset_id)
+    job_id = JobService.create_job(dataset_id, "report_generation", user_id=current_user["user_id"])
+    background_tasks.add_task(JobService.run_report_job, job_id, dataset_id, current_user["user_id"])
     return {"job_id": job_id}
 
 
 @app.get("/reports/download/{dataset_id}")
-def download_report(dataset_id: str):
+def download_report(dataset_id: str, current_user: dict = Depends(get_current_user)):
+    dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
+    if dataset is None:
+        raise NotFoundException("Dataset not found")
+        
     report_path = os.path.join(REPORT_DIR, f"{dataset_id}_report.pdf")
     if not os.path.exists(report_path):
         raise NotFoundException("Report not found")
@@ -338,18 +477,18 @@ def download_report(dataset_id: str):
     )
 
 @app.get("/jobs")
-def get_all_jobs():
-    return JobService.get_all_jobs()
+def get_all_jobs(current_user: dict = Depends(get_current_user)):
+    return JobService.get_all_jobs(user_id=current_user["user_id"])
 
 @app.get("/jobs/{job_id}")
-def get_job(job_id: str):
-    job = JobService.get_job(job_id)
+def get_job(job_id: str, current_user: dict = Depends(get_current_user)):
+    job = JobService.get_job(job_id, user_id=current_user["user_id"])
     if job is None:
         raise NotFoundException("Job not found")
     return job
 
 @app.get("/ai/test")
-def ai_test():
+def ai_test(current_user: dict = Depends(get_current_user)):
     llm = get_llm()
     response = llm.generate("Explain machine learning in one sentence.")
     return {
@@ -358,8 +497,8 @@ def ai_test():
     }
 
 @app.get("/datasets/{dataset_id}/insights")
-def get_dataset_insights(dataset_id: str):
-    insights = AIInsightsService.get_insights(dataset_id)
+def get_dataset_insights(dataset_id: str, current_user: dict = Depends(get_current_user)):
+    insights = AIInsightsService.get_insights(dataset_id, user_id=current_user["user_id"])
     if insights is None:
         raise NotFoundException("Dataset not found")
     return insights
@@ -373,42 +512,47 @@ class SessionCreateRequest(BaseModel):
     dataset_id: str
 
 @app.post("/copilot/session")
-def create_copilot_session(request: SessionCreateRequest):
-    dataset = DatasetService.get_dataset_by_id(request.dataset_id)
+def create_copilot_session(request: SessionCreateRequest, current_user: dict = Depends(get_current_user)):
+    dataset = DatasetService.get_dataset_by_id(request.dataset_id, user_id=current_user["user_id"])
     if dataset is None:
         raise NotFoundException("Dataset not found")
     
     from services.memory_service import MemoryService
     try:
-        session_data = MemoryService.create_session(request.dataset_id)
+        session_data = MemoryService.create_session(request.dataset_id, user_id=current_user["user_id"])
         return session_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/copilot/sessions/{dataset_id}")
-def get_copilot_sessions(dataset_id: str):
-    dataset = DatasetService.get_dataset_by_id(dataset_id)
+def get_copilot_sessions(dataset_id: str, current_user: dict = Depends(get_current_user)):
+    dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
     if dataset is None:
         raise NotFoundException("Dataset not found")
     
     from services.memory_service import MemoryService
     try:
-        return MemoryService.get_sessions(dataset_id)
+        return MemoryService.get_sessions(dataset_id, user_id=current_user["user_id"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/copilot/session/{session_id}/history")
-def get_copilot_session_history(session_id: str):
+def get_copilot_session_history(session_id: str, current_user: dict = Depends(get_current_user)):
     from services.memory_service import MemoryService
     try:
-        return MemoryService.get_session_history(session_id)
+        return MemoryService.get_session_history(session_id, user_id=current_user["user_id"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/copilot/chat")
-def copilot_chat(request: ChatRequest):
+def copilot_chat(request: ChatRequest, current_user: dict = Depends(get_current_user)):
+    # Verify dataset existence first
+    dataset = DatasetService.get_dataset_by_id(request.dataset_id, user_id=current_user["user_id"])
+    if dataset is None:
+        raise NotFoundException("Dataset not found")
+        
     try:
-        answer = CopilotService.chat(request.dataset_id, request.session_id, request.question)
+        answer = CopilotService.chat(request.dataset_id, request.session_id, request.question, user_id=current_user["user_id"])
         return {"answer": answer}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -416,36 +560,38 @@ def copilot_chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/copilot/history/{dataset_id}")
-def copilot_history(dataset_id: str):
+def copilot_history(dataset_id: str, current_user: dict = Depends(get_current_user)):
     # Verify dataset existence first
-    dataset = DatasetService.get_dataset_by_id(dataset_id)
+    dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
     if dataset is None:
         raise NotFoundException("Dataset not found")
-    return CopilotService.get_history(dataset_id)
+    return CopilotService.get_history(dataset_id, user_id=current_user["user_id"])
 
 @app.get("/copilot/suggestions/{dataset_id}")
-def copilot_suggestions(dataset_id: str):
+def copilot_suggestions(dataset_id: str, current_user: dict = Depends(get_current_user)):
     # Verify dataset existence first
-    dataset = DatasetService.get_dataset_by_id(dataset_id)
+    dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
     if dataset is None:
         raise NotFoundException("Dataset not found")
-    return CopilotService.get_suggestions(dataset_id)
+    return CopilotService.get_suggestions(dataset_id, user_id=current_user["user_id"])
 
 
 @app.get("/dashboard/overview")
-def get_dashboard_overview():
+def get_dashboard_overview(current_user: dict = Depends(get_current_user)):
     from services.dataset_service import DatasetService
     from services.job_service import JobService
     from core.database import db, db_connected
     import json
     import os
 
+    user_id = current_user["user_id"]
+
     # 1. Total datasets
-    datasets = DatasetService.get_all_datasets()
+    datasets = DatasetService.get_all_datasets(user_id=user_id)
     total_datasets = len(datasets)
 
     # 2. Total models trained
-    jobs = JobService.get_all_jobs()
+    jobs = JobService.get_all_jobs(user_id=user_id)
     total_models = len([j for j in jobs if j.get("job_type") in ("training", "experiment") and j.get("status") == "COMPLETED"])
 
     # 3. Total reports generated
@@ -455,12 +601,12 @@ def get_dashboard_overview():
         try:
             with open(report_metadata_file, "r") as f:
                 reports = json.load(f)
-                total_reports = len(reports)
+                total_reports = len([r for r in reports if r.get("user_id") == user_id])
         except Exception:
             pass
     if db_connected and db is not None:
         try:
-            total_reports = db.generated_reports.count_documents({})
+            total_reports = db.generated_reports.count_documents({"user_id": user_id})
         except Exception:
             pass
 
@@ -471,12 +617,12 @@ def get_dashboard_overview():
         try:
             with open(history_file, "r") as f:
                 history = json.load(f)
-                total_conversations = len(history)
+                total_conversations = len([h for h in history if h.get("user_id") == user_id])
         except Exception:
             pass
     if db_connected and db is not None:
         try:
-            total_conversations = db.copilot_conversations.count_documents({})
+            total_conversations = db.copilot_conversations.count_documents({"user_id": user_id})
         except Exception:
             pass
 
@@ -497,15 +643,17 @@ def get_dashboard_overview():
 
 
 @app.get("/copilot/sessions")
-def get_all_copilot_sessions():
+def get_all_copilot_sessions(current_user: dict = Depends(get_current_user)):
     from core.database import db, db_connected
     import os
     import json
     
+    user_id = current_user["user_id"]
+
     # Try MongoDB first
     if db_connected and db is not None:
         try:
-            cursor = db.copilot_sessions.find().sort("created_at", -1)
+            cursor = db.copilot_sessions.find({"user_id": user_id}).sort("created_at", -1)
             sessions = list(cursor)
             for s in sessions:
                 s.pop("_id", None)
@@ -519,23 +667,26 @@ def get_all_copilot_sessions():
         try:
             with open(sessions_file, "r") as f:
                 sessions = json.load(f)
-            sessions.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-            return sessions
+            filtered = [s for s in sessions if s.get("user_id") == user_id]
+            filtered.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            return filtered
         except Exception:
             return []
     return []
 
 
 @app.get("/reports")
-def get_all_reports():
+def get_all_reports(current_user: dict = Depends(get_current_user)):
     import os
     import json
     from core.database import db, db_connected
     
+    user_id = current_user["user_id"]
+
     # Try MongoDB first
     if db_connected and db is not None:
         try:
-            docs = list(db.generated_reports.find())
+            docs = list(db.generated_reports.find({"user_id": user_id}))
             for doc in docs:
                 doc.pop("_id", None)
             return docs
@@ -547,14 +698,15 @@ def get_all_reports():
     if os.path.exists(report_metadata_file):
         try:
             with open(report_metadata_file, "r") as f:
-                return json.load(f)
+                reports = json.load(f)
+            return [r for r in reports if r.get("user_id") == user_id]
         except Exception:
             return []
     return []
 
 
 @app.get("/system-logs")
-def get_system_logs(limit: int = 200):
+def get_system_logs(limit: int = 200, current_user: dict = Depends(get_current_user)):
     log_file_path = "logs/app.log"
     if not os.path.exists(log_file_path):
         return {"logs": []}
@@ -569,7 +721,7 @@ def get_system_logs(limit: int = 200):
 
 
 @app.post("/system-logs/clear")
-def clear_system_logs():
+def clear_system_logs(current_user: dict = Depends(get_current_user)):
     log_file_path = "logs/app.log"
     try:
         with open(log_file_path, "w", encoding="utf-8") as f:
@@ -581,7 +733,7 @@ def clear_system_logs():
         raise HTTPException(status_code=500, detail=f"Failed to clear logs: {str(e)}")
 
 
-# --- Settings & Experiments Endpoints ---
+# --- Settings, Preferences & Experiments Endpoints ---
 
 class SettingsUpdateRequest(BaseModel):
     mongodb_url: str = None
@@ -589,23 +741,51 @@ class SettingsUpdateRequest(BaseModel):
     groq_model: str = None
     llm_provider: str = None
     groq_api_key: str = None
+    github_token: str = None
+
+class TokenTestRequest(BaseModel):
+    github_token: str
+
+@app.post("/settings/test-github")
+def test_github_token(request: TokenTestRequest, current_user: dict = Depends(get_current_user)):
+    import requests
+    headers = {
+        "Authorization": f"token {request.github_token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    try:
+        response = requests.get("https://api.github.com/user", headers=headers, timeout=5)
+        if response.status_code == 200:
+            scopes = response.headers.get("X-OAuth-Scopes", "")
+            has_gist = "gist" in [s.strip() for s in scopes.split(",")]
+            return {
+                "valid": True,
+                "username": response.json().get("login"),
+                "scopes": scopes,
+                "has_gist_scope": has_gist
+            }
+        else:
+            return {"valid": False, "detail": f"GitHub API returned status {response.status_code}"}
+    except Exception as e:
+        return {"valid": False, "detail": str(e)}
 
 @app.get("/settings")
-def get_settings():
+def get_settings(current_user: dict = Depends(get_current_user)):
     import core.config as config
     from core.database import db_connected
     
     return {
-        "MONGODB_URL": config.MONGODB_URL,
+        "MONGODB_URL_CONFIGURED": bool(config.MONGODB_URL),
         "DATABASE_NAME": config.DATABASE_NAME,
         "GROQ_MODEL": config.GROQ_MODEL,
         "LLM_PROVIDER": config.LLM_PROVIDER,
         "GROQ_API_KEY_CONFIGURED": bool(config.GROQ_API_KEY),
+        "GITHUB_TOKEN_CONFIGURED": bool(config.GITHUB_TOKEN),
         "MONGODB_CONNECTED": bool(db_connected)
     }
 
 @app.post("/settings")
-def update_settings(request: SettingsUpdateRequest):
+def update_settings(request: SettingsUpdateRequest, current_user: dict = Depends(get_current_user)):
     import core.config as config
     import core.database as database
     
@@ -632,16 +812,18 @@ def update_settings(request: SettingsUpdateRequest):
                 env_keys[parts[0].strip()] = i
 
     updates = {}
-    if request.mongodb_url is not None:
+    if request.mongodb_url is not None and request.mongodb_url.strip() != "":
         updates["MONGODB_URL"] = request.mongodb_url
-    if request.database_name is not None:
+    if request.database_name is not None and request.database_name.strip() != "":
         updates["DATABASE_NAME"] = request.database_name
-    if request.groq_model is not None:
+    if request.groq_model is not None and request.groq_model.strip() != "":
         updates["GROQ_MODEL"] = request.groq_model
-    if request.llm_provider is not None:
+    if request.llm_provider is not None and request.llm_provider.strip() != "":
         updates["LLM_PROVIDER"] = request.llm_provider
-    if request.groq_api_key is not None:
+    if request.groq_api_key is not None and request.groq_api_key.strip() != "":
         updates["GROQ_API_KEY"] = request.groq_api_key
+    if request.github_token is not None and request.github_token.strip() != "":
+        updates["GITHUB_TOKEN"] = request.github_token
 
     for key, val in updates.items():
         if key in env_keys:
@@ -671,6 +853,8 @@ def update_settings(request: SettingsUpdateRequest):
         config.LLM_PROVIDER = updates["LLM_PROVIDER"]
     if "GROQ_API_KEY" in updates:
         config.GROQ_API_KEY = updates["GROQ_API_KEY"]
+    if "GITHUB_TOKEN" in updates:
+        config.GITHUB_TOKEN = updates["GITHUB_TOKEN"]
 
     # Reconnect to MongoDB dynamically
     database.connect_db()
@@ -680,9 +864,41 @@ def update_settings(request: SettingsUpdateRequest):
         "mongodb_connected": bool(database.db_connected)
     }
 
+class PreferencesUpdateRequest(BaseModel):
+    name: str = None
+    email: str = None
+    profile_photo: str = None
+    ai_response_style: str = None
+    notebook_export_style: str = None
+    default_export_format: str = None
+    auto_open_colab: bool = None
+    notifications: dict = None
+    dashboard: dict = None
+
+@app.get("/preferences")
+def get_preferences(current_user: dict = Depends(get_current_user)):
+    from repositories.preferences_repository import PreferencesRepository
+    return PreferencesRepository.get_preferences(user_id=current_user["user_id"])
+
+@app.post("/preferences")
+def update_preferences(request: PreferencesUpdateRequest, current_user: dict = Depends(get_current_user)):
+    from repositories.preferences_repository import PreferencesRepository
+    current = PreferencesRepository.get_preferences(user_id=current_user["user_id"])
+    
+    updates = request.dict(exclude_unset=True)
+    for k, v in updates.items():
+        if v is not None:
+            if k in ("notifications", "dashboard") and isinstance(current.get(k), dict) and isinstance(v, dict):
+                current[k].update(v)
+            else:
+                current[k] = v
+                
+    PreferencesRepository.save_preferences(current, user_id=current_user["user_id"])
+    return current
+
 @app.get("/datasets/{dataset_id}/columns")
-def get_dataset_columns(dataset_id: str):
-    df = DatasetService.get_dataframe(dataset_id)
+def get_dataset_columns(dataset_id: str, current_user: dict = Depends(get_current_user)):
+    df = DatasetService.get_dataframe(dataset_id, user_id=current_user["user_id"])
     if df is None:
         raise NotFoundException("Dataset not found")
     return {"columns": df.columns.tolist()}
@@ -694,10 +910,11 @@ class ExperimentCreateRequest(BaseModel):
     imputation_strategy: str = "median"
     selected_models: list = None
     outlier_threshold: float = None
+    hyperparameters: dict = None
 
 @app.post("/experiments")
-def create_experiment(request: ExperimentCreateRequest, background_tasks: BackgroundTasks):
-    dataset = DatasetService.get_dataset_by_id(request.dataset_id)
+def create_experiment(request: ExperimentCreateRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    dataset = DatasetService.get_dataset_by_id(request.dataset_id, user_id=current_user["user_id"])
     if dataset is None:
         raise NotFoundException("Dataset not found")
 
@@ -710,20 +927,22 @@ def create_experiment(request: ExperimentCreateRequest, background_tasks: Backgr
             split_ratio=request.split_ratio,
             imputation_strategy=request.imputation_strategy,
             selected_models=request.selected_models,
-            outlier_threshold=request.outlier_threshold
+            outlier_threshold=request.outlier_threshold,
+            hyperparameters=request.hyperparameters,
+            user_id=current_user["user_id"]
         )
         experiment_id = experiment["experiment_id"]
         
         # Create background Job
-        job_id = JobService.create_job(request.dataset_id, "experiment")
+        job_id = JobService.create_job(request.dataset_id, "experiment", user_id=current_user["user_id"])
         
         # Link job_id to experiment metadata
         experiment["job_id"] = job_id
         from repositories.experiment_repository import ExperimentRepository
-        ExperimentRepository.save_experiment(experiment)
+        ExperimentRepository.save_experiment(experiment, user_id=current_user["user_id"])
 
         # Trigger async worker execution
-        background_tasks.add_task(JobService.run_experiment_job, job_id, request.dataset_id, experiment_id)
+        background_tasks.add_task(JobService.run_experiment_job, job_id, request.dataset_id, experiment_id, current_user["user_id"])
         
         return {
             "experiment_id": experiment_id,
@@ -733,25 +952,25 @@ def create_experiment(request: ExperimentCreateRequest, background_tasks: Backgr
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/experiments/{dataset_id}")
-def get_experiments(dataset_id: str):
-    dataset = DatasetService.get_dataset_by_id(dataset_id)
+def get_experiments(dataset_id: str, current_user: dict = Depends(get_current_user)):
+    dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
     if dataset is None:
         raise NotFoundException("Dataset not found")
 
     from services.experiment_service import ExperimentService
-    return ExperimentService.get_experiments(dataset_id)
+    return ExperimentService.get_experiments(dataset_id, user_id=current_user["user_id"])
 
 @app.get("/experiments/status/{experiment_id}")
-def get_experiment_status(experiment_id: str):
+def get_experiment_status(experiment_id: str, current_user: dict = Depends(get_current_user)):
     from services.experiment_service import ExperimentService
-    experiment = ExperimentService.get_experiment(experiment_id)
+    experiment = ExperimentService.get_experiment(experiment_id, user_id=current_user["user_id"])
     if not experiment:
         raise NotFoundException("Experiment not found")
 
     job_id = experiment.get("job_id")
     job_details = None
     if job_id:
-        job_details = JobService.get_job(job_id)
+        job_details = JobService.get_job(job_id, user_id=current_user["user_id"])
 
     return {
         "experiment": experiment,

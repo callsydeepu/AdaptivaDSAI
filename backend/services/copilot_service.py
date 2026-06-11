@@ -15,7 +15,7 @@ class CopilotService:
     """
 
     @staticmethod
-    def chat(dataset_id: str, session_id: str, question: str) -> str:
+    def chat(dataset_id: str, session_id: str, question: str, user_id=None) -> str:
         # Security & Validation checks
         if not question or not question.strip():
             raise ValueError("Question cannot be empty.")
@@ -28,7 +28,7 @@ class CopilotService:
         # 1. Retrieve prompt package using ContextBuilder
         try:
             from services.context_builder import ContextBuilder
-            prompt_package = ContextBuilder.build_prompt_package(dataset_id, session_id, question)
+            prompt_package = ContextBuilder.build_prompt_package(dataset_id, session_id, question, user_id=user_id)
         except Exception as e:
             logger.error(f"Failed to construct prompt package: {str(e)}", exc_info=True)
             raise ValueError(f"Failed to build context: {str(e)}")
@@ -46,7 +46,7 @@ class CopilotService:
             
         # 4. Save history in database repository
         try:
-            CopilotRepository.save_chat(dataset_id, session_id, question, answer)
+            CopilotRepository.save_chat(dataset_id, session_id, question, answer, user_id=user_id)
         except Exception as e:
             logger.error(f"Failed to persist chat conversation log: {str(e)}")
             # Do not block response delivery if storage logs fail
@@ -54,13 +54,16 @@ class CopilotService:
         return answer
 
     @staticmethod
-    def get_history(dataset_id: str) -> list:
+    def get_history(dataset_id: str, user_id=None) -> list:
         """
         Retrieves previous conversation log entries for the selected dataset.
         """
         if db_connected and db is not None:
             try:
-                cursor = db.copilot_conversations.find({"dataset_id": dataset_id}).sort("created_at", 1)
+                query = {"dataset_id": dataset_id}
+                if user_id:
+                    query["user_id"] = user_id
+                cursor = db.copilot_conversations.find(query).sort("created_at", 1)
                 history = list(cursor)
                 for h in history:
                     h.pop("_id", None)
@@ -72,7 +75,10 @@ class CopilotService:
             try:
                 with open(HISTORY_FILE, "r") as f:
                     history = json.load(f)
-                filtered = [h for h in history if h.get("dataset_id") == dataset_id]
+                filtered = [
+                    h for h in history 
+                    if h.get("dataset_id") == dataset_id and (user_id is None or h.get("user_id") == user_id)
+                ]
                 filtered.sort(key=lambda x: x.get("created_at", ""))
                 return filtered
             except Exception:
@@ -80,12 +86,12 @@ class CopilotService:
         return []
 
     @staticmethod
-    def get_suggestions(dataset_id: str) -> list:
+    def get_suggestions(dataset_id: str, user_id=None) -> list:
         """
         Generates dynamic suggested queries based on the selected dataset context.
         """
         logger.info(f"Compiling suggested questions for dataset {dataset_id}")
-        context = RetrievalService.get_context(dataset_id)
+        context = RetrievalService.get_context(dataset_id, user_id=user_id)
         if context is None:
             return []
             

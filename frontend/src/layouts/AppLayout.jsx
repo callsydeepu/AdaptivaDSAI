@@ -2,6 +2,8 @@ import React from "react";
 import { Navbar } from "../components/Navbar";
 import { Sidebar } from "../components/Sidebar";
 import { MobileNav } from "../components/MobileNav";
+import { CopilotDrawer } from "../components/copilot/CopilotDrawer";
+import { CopilotTrigger } from "../components/copilot/CopilotTrigger";
 
 export function AppLayout({ children }) {
   return (
@@ -23,6 +25,12 @@ export function AppLayout({ children }) {
       
       {/* Mobile Bottom Navigation */}
       <MobileNav />
+
+      {/* Global Sliding Assistant Drawer */}
+      <CopilotDrawer />
+
+      {/* Global Floating AI Trigger Button */}
+      <CopilotTrigger variant="floating" />
     </div>
   );
 }

@@ -1,8 +1,16 @@
-import React from "react";
+import React, { useContext } from "react";
 import { useNavigate } from "react-router-dom";
+import { AuthContext } from "../contexts/AuthContext";
 
 export function CandidateModelCard({ name, score, recommended, description, metrics, disabled }) {
   const navigate = useNavigate();
+  const { requireAuth } = useContext(AuthContext);
+
+  const handleAction = () => {
+    requireAuth(() => {
+      navigate('/experiment');
+    }, "configure_experiment");
+  };
 
   return (
     <div className={`hover-glass-card rounded-xl p-6 flex flex-col sm:flex-row items-center gap-6 md:gap-8 ${
@@ -44,7 +52,7 @@ export function CandidateModelCard({ name, score, recommended, description, metr
       {/* Action button */}
       <div className="w-full sm:w-auto flex-shrink-0">
         <button 
-          onClick={() => navigate('/under-construction')}
+          onClick={handleAction}
           className={`w-full sm:w-auto px-6 py-2.5 rounded-lg font-bold text-sm transition-all active:scale-95 ${
             recommended 
               ? "bg-primary-container text-on-primary-container hover:bg-accent-hover"

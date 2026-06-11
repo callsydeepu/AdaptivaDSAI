@@ -1,27 +1,96 @@
-import React, { useState } from "react";
+import React, { useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { CandidateModelCard } from "../components/CandidateModelCard";
 import { useDataset } from "../contexts/DatasetContext";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { mlService } from "../services/mlService";
 import { analysisService } from "../services/analysisService";
+import { AuthContext } from "../contexts/AuthContext";
 
 export function ModelRecommendation() {
   const navigate = useNavigate();
   const { currentDatasetId, currentDataset } = useDataset();
+  const { user, requireAuth } = useContext(AuthContext);
   const [launchError, setLaunchError] = useState("");
 
+  const isHousePricingDemo = currentDatasetId === "demo-house-pricing";
+  const isDemoDataset = currentDatasetId === "demo-titanic-survival" || isHousePricingDemo;
+  const enabledQuery = !!user && !!currentDatasetId && !isDemoDataset;
+
+  // Mock data fallbacks for Demo Datasets
+  const demoProblemTitanic = {
+    problem_type: "Binary Classification",
+    target_column: "Survived",
+    classification_type: "Balanced (61.6% / 38.4%)"
+  };
+
+  const demoRecommendationsTitanic = {
+    recommended_models: [
+      {
+        model: "RandomForestClassifier",
+        priority: 1,
+        reason: "Ensemble tree-based classifier with high tolerance to numerical outliers and excellent handling of mixed categorical/numeric features."
+      },
+      {
+        model: "LogisticRegression",
+        priority: 2,
+        reason: "Highly explainable linear model suitable as a baseline. Balanced class weights applied to manage survival class proportions."
+      },
+      {
+        model: "DecisionTreeClassifier",
+        priority: 3,
+        reason: "High explainability with tree visualizations, though prone to overfitting without depth pruning."
+      },
+      {
+        model: "XGBClassifier (Disabled)",
+        priority: 4,
+        reason: "Gradient boosting tree candidate for maximizing predictive boundaries (Disabled in MVP)."
+      }
+    ]
+  };
+
+  const demoProblemHouse = {
+    problem_type: "Regression",
+    target_column: "SalePrice",
+    classification_type: "Continuous (Skewness: 1.88)"
+  };
+
+  const demoRecommendationsHouse = {
+    recommended_models: [
+      {
+        model: "RandomForestRegressor",
+        priority: 1,
+        reason: "Ensemble tree regressor suitable for capturing highly non-linear feature interactions without feature scale constraints."
+      },
+      {
+        model: "LinearRegression",
+        priority: 2,
+        reason: "Simple linear regression baseline, though vulnerable to collinear columns."
+      },
+      {
+        model: "RidgeRegressor",
+        priority: 3,
+        reason: "Linear model with L2 regularization to manage multicollinearity in the house features dataset."
+      },
+      {
+        model: "XGBRegressor (Disabled)",
+        priority: 4,
+        reason: "Gradient boosting regressor candidate for fine-tuned residue minimization (Disabled in MVP)."
+      }
+    ]
+  };
+
   // Queries
-  const { data: recommendations, isLoading: isRecLoading, error: recError } = useQuery({
+  const { data: serverRecommendations, isLoading: isRecLoading, error: recError } = useQuery({
     queryKey: ["recommendations", currentDatasetId],
     queryFn: () => mlService.getRecommendations(currentDatasetId),
-    enabled: !!currentDatasetId,
+    enabled: enabledQuery,
   });
 
-  const { data: problem, isLoading: isProblemLoading } = useQuery({
+  const { data: serverProblem, isLoading: isProblemLoading } = useQuery({
     queryKey: ["problem-detection", currentDatasetId],
     queryFn: () => analysisService.getProblemDetection(currentDatasetId),
-    enabled: !!currentDatasetId,
+    enabled: enabledQuery,
   });
 
   // Launch training mutation
@@ -34,6 +103,12 @@ export function ModelRecommendation() {
       setLaunchError(err.response?.data?.detail || "Failed to start training. Please make sure the dataset is processed.");
     },
   });
+
+  const handleLaunchTraining = () => {
+    requireAuth(() => {
+      trainMutation.mutate();
+    }, "train_model");
+  };
 
   if (!currentDatasetId) {
     return (
@@ -53,7 +128,7 @@ export function ModelRecommendation() {
     );
   }
 
-  const isLoading = isRecLoading || isProblemLoading;
+  const isLoading = enabledQuery && (isRecLoading || isProblemLoading);
 
   if (isLoading) {
     return (
@@ -64,7 +139,7 @@ export function ModelRecommendation() {
     );
   }
 
-  if (recError || !recommendations) {
+  if (enabledQuery && (recError || !serverRecommendations)) {
     return (
       <div className="bg-error/10 border border-error/20 rounded-2xl p-6 flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
         <span className="material-symbols-outlined text-4xl text-error">error</span>
@@ -82,6 +157,8 @@ export function ModelRecommendation() {
     );
   }
 
+  const recommendations = enabledQuery ? serverRecommendations : (isHousePricingDemo ? demoRecommendationsHouse : demoRecommendationsTitanic);
+  const problem = enabledQuery ? serverProblem : (isHousePricingDemo ? demoProblemHouse : demoProblemTitanic);
   const recommendedModels = recommendations.recommended_models || [];
 
   return (
@@ -111,7 +188,7 @@ export function ModelRecommendation() {
             View Profile
           </button>
           <button 
-            onClick={() => trainMutation.mutate()}
+            onClick={handleLaunchTraining}
             disabled={trainMutation.isPending}
             className="bg-primary-container text-on-primary-container px-8 py-2.5 rounded-lg hover:bg-accent-hover transition-all font-bold shadow-lg shadow-primary-container/10 active:scale-95 text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >

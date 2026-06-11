@@ -31,10 +31,12 @@ class TrainingService:
         experiment_id: str = None,
         target_column: str = None,
         split_ratio: float = 0.8,
-        selected_models: list = None
+        selected_models: list = None,
+        hyperparameters: dict = None,
+        user_id: str = None
     ):
         # 1. Load Dataset Metadata
-        dataset = DatasetService.get_dataset_by_id(dataset_id)
+        dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=user_id)
         if dataset is None:
             return None
 
@@ -45,7 +47,7 @@ class TrainingService:
             if not experiment_id:
                 logger.info(f"Processed dataset not found for dataset {dataset_id}. Triggering feature engineering dynamically.")
                 from services.feature_engineering_service import FeatureEngineeringService
-                fe_res = FeatureEngineeringService.process_dataset(dataset_id)
+                fe_res = FeatureEngineeringService.process_dataset(dataset_id, user_id=user_id)
                 if fe_res is None or not os.path.exists(processed_path):
                     raise FileNotFoundError("Processed dataset not found")
             else:
@@ -78,7 +80,7 @@ class TrainingService:
                     problem_type = "Regression"
                     classification_type = "N/A"
         else:
-            problem_info = ProblemDetectionService.detect_problem(dataset_id)
+            problem_info = ProblemDetectionService.detect_problem(dataset_id, user_id=user_id)
             if problem_info is None:
                 return None
             problem_type = problem_info.get("problem_type")
@@ -120,17 +122,68 @@ class TrainingService:
         # 7. Fit & Evaluate Models
         for model_name in models_to_train:
             if model_name == "LogisticRegression":
-                model = LogisticRegression(max_iter=1000, random_state=42)
+                params = hyperparameters.get("LogisticRegression", {}) if hyperparameters else {}
+                max_iter = params.get("max_iter", 1000)
+                C = params.get("C", 1.0)
+                try:
+                    max_iter = int(max_iter) if max_iter is not None else 1000
+                except ValueError:
+                    max_iter = 1000
+                try:
+                    C = float(C) if C is not None else 1.0
+                except ValueError:
+                    C = 1.0
+                model = LogisticRegression(max_iter=max_iter, C=C, random_state=42)
             elif model_name == "RandomForestClassifier":
-                model = RandomForestClassifier(random_state=42)
+                params = hyperparameters.get("RandomForestClassifier", {}) if hyperparameters else {}
+                n_estimators = params.get("n_estimators", 100)
+                max_depth = params.get("max_depth", None)
+                try:
+                    n_estimators = int(n_estimators) if n_estimators is not None else 100
+                except ValueError:
+                    n_estimators = 100
+                try:
+                    max_depth = int(max_depth) if (max_depth is not None and str(max_depth).strip() != "" and str(max_depth).lower() != "none") else None
+                except ValueError:
+                    max_depth = None
+                model = RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
             elif model_name == "DecisionTreeClassifier":
-                model = DecisionTreeClassifier(random_state=42)
+                params = hyperparameters.get("DecisionTreeClassifier", {}) if hyperparameters else {}
+                max_depth = params.get("max_depth", None)
+                try:
+                    max_depth = int(max_depth) if (max_depth is not None and str(max_depth).strip() != "" and str(max_depth).lower() != "none") else None
+                except ValueError:
+                    max_depth = None
+                model = DecisionTreeClassifier(max_depth=max_depth, random_state=42)
             elif model_name == "LinearRegression":
-                model = LinearRegression()
+                params = hyperparameters.get("LinearRegression", {}) if hyperparameters else {}
+                fit_intercept = params.get("fit_intercept", True)
+                if isinstance(fit_intercept, str):
+                    fit_intercept = fit_intercept.lower() == "true"
+                else:
+                    fit_intercept = bool(fit_intercept)
+                model = LinearRegression(fit_intercept=fit_intercept)
             elif model_name == "RandomForestRegressor":
-                model = RandomForestRegressor(random_state=42)
+                params = hyperparameters.get("RandomForestRegressor", {}) if hyperparameters else {}
+                n_estimators = params.get("n_estimators", 100)
+                max_depth = params.get("max_depth", None)
+                try:
+                    n_estimators = int(n_estimators) if n_estimators is not None else 100
+                except ValueError:
+                    n_estimators = 100
+                try:
+                    max_depth = int(max_depth) if (max_depth is not None and str(max_depth).strip() != "" and str(max_depth).lower() != "none") else None
+                except ValueError:
+                    max_depth = None
+                model = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
             elif model_name == "DecisionTreeRegressor":
-                model = DecisionTreeRegressor(random_state=42)
+                params = hyperparameters.get("DecisionTreeRegressor", {}) if hyperparameters else {}
+                max_depth = params.get("max_depth", None)
+                try:
+                    max_depth = int(max_depth) if (max_depth is not None and str(max_depth).strip() != "" and str(max_depth).lower() != "none") else None
+                except ValueError:
+                    max_depth = None
+                model = DecisionTreeRegressor(max_depth=max_depth, random_state=42)
             else:
                 continue
 
@@ -187,7 +240,7 @@ class TrainingService:
             "split_ratio": split_ratio
         }
 
-        TrainingRepository.save_training_job(results)
+        TrainingRepository.save_training_job(results, user_id=user_id)
         logger.info(f"Model training completed for dataset {dataset_id} (experiment {experiment_id}). Best model: {best_model_name}")
 
         return results

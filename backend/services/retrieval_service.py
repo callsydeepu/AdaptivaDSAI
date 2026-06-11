@@ -15,14 +15,14 @@ class RetrievalService:
     """
 
     @staticmethod
-    def get_dataset_context(dataset_id: str) -> dict:
+    def get_dataset_context(dataset_id: str, user_id=None) -> dict:
         """
         Retrieves the complete, raw aggregated diagnostic context for a dataset.
         """
         logger.info(f"Retrieving raw aggregated dataset context for: {dataset_id}")
         
         # Verify dataset exists
-        dataset = DatasetService.get_dataset_by_id(dataset_id)
+        dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=user_id)
         if dataset is None:
             logger.warning(f"Retrieval failed: Dataset {dataset_id} not found.")
             return None
@@ -30,8 +30,8 @@ class RetrievalService:
         profiling = ProfilingService.profile_dataset(dataset_id)
         statistics = StatisticsService.get_statistics(dataset_id)
         eda = EDAService.analyze_dataset(dataset_id)
-        problem = ProblemDetectionService.detect_problem(dataset_id)
-        evaluation = TrainingRepository.get_evaluation_result(dataset_id)
+        problem = ProblemDetectionService.detect_problem(dataset_id, user_id=user_id)
+        evaluation = TrainingRepository.get_evaluation_result(dataset_id, user_id=user_id)
         insights_data = AIInsightsService.get_insights(dataset_id)
         insights = insights_data.get("insights", []) if insights_data else []
 
@@ -47,13 +47,13 @@ class RetrievalService:
         }
 
     @staticmethod
-    def get_relevant_context(dataset_id: str, question: str) -> dict:
+    def get_relevant_context(dataset_id: str, question: str, user_id=None) -> dict:
         """
         Retrieves and ranks context blocks relative to the user query, pruning
         irrelevant diagnostic files.
         """
         logger.info(f"Retrieving relevant context for dataset {dataset_id} relative to query: '{question[:35]}...'")
-        full_context = RetrievalService.get_dataset_context(dataset_id)
+        full_context = RetrievalService.get_dataset_context(dataset_id, user_id=user_id)
         if full_context is None:
             return None
 
@@ -66,8 +66,8 @@ class RetrievalService:
         return ranked
 
     @staticmethod
-    def get_context(dataset_id: str) -> dict:
+    def get_context(dataset_id: str, user_id=None) -> dict:
         """
         Alias method for backward compatibility.
         """
-        return RetrievalService.get_dataset_context(dataset_id)
+        return RetrievalService.get_dataset_context(dataset_id, user_id=user_id)

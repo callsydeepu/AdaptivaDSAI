@@ -9,15 +9,46 @@ export function DatasetProvider({ children }) {
   const [isDatasetLoading, setIsDatasetLoading] = useState(false);
   const [datasetError, setDatasetError] = useState(null);
 
+  const DEMO_DATASETS = [
+    {
+      dataset_id: "demo-titanic-survival",
+      filename: "titanic_survival_demo.csv",
+      rows: 891,
+      columns: 12,
+      problem_type: "Classification",
+      uploaded_at: new Date().toISOString()
+    },
+    {
+      dataset_id: "demo-house-pricing",
+      filename: "house_prices_demo.csv",
+      rows: 1460,
+      columns: 81,
+      problem_type: "Regression",
+      uploaded_at: new Date().toISOString()
+    }
+  ];
+
   const refreshDatasets = async () => {
+    const token = localStorage.getItem("access_token");
+    if (!token) {
+      setDatasets(DEMO_DATASETS);
+      if (!currentDatasetId) {
+        setCurrentDatasetId("demo-titanic-survival");
+      }
+      return;
+    }
+
     setIsDatasetLoading(true);
     setDatasetError(null);
     try {
       const data = await datasetService.getDatasets();
       setDatasets(data);
-      if (data.length > 0 && !currentDatasetId) {
-        // Set first dataset by default if not set
-        setCurrentDatasetId(data[0].dataset_id);
+      if (data.length > 0) {
+        if (!data.some(d => d.dataset_id === currentDatasetId) && currentDatasetId !== "demo-titanic-survival" && currentDatasetId !== "demo-house-pricing") {
+          setCurrentDatasetId(data[0].dataset_id);
+        } else if (!currentDatasetId || currentDatasetId === "demo-titanic-survival" || currentDatasetId === "demo-house-pricing") {
+          setCurrentDatasetId(data[0].dataset_id);
+        }
       }
     } catch (err) {
       setDatasetError(err);

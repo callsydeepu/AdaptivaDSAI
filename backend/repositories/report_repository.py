@@ -8,7 +8,10 @@ REPORT_METADATA_FILE = "data/report_metadata.json"
 class ReportRepository:
 
     @staticmethod
-    def save_report_metadata(report_metadata):
+    def save_report_metadata(report_metadata, user_id=None):
+        if user_id:
+            report_metadata["user_id"] = user_id
+            
         # Phase 1: Write to MongoDB (if available)
         if db_connected and db is not None:
             try:
@@ -35,11 +38,14 @@ class ReportRepository:
             json.dump(reports, f, indent=4)
 
     @staticmethod
-    def get_report_metadata(dataset_id):
+    def get_report_metadata(dataset_id, user_id=None):
         # Phase 2: Read from MongoDB first
         if db_connected and db is not None:
             try:
-                doc = db.generated_reports.find_one({"_id": dataset_id})
+                query = {"_id": dataset_id}
+                if user_id:
+                    query["user_id"] = user_id
+                doc = db.generated_reports.find_one(query)
                 if doc:
                     doc.pop("_id", None)
                     return doc
@@ -53,7 +59,8 @@ class ReportRepository:
                     reports = json.load(f)
                 for report in reports:
                     if report["dataset_id"] == dataset_id:
-                        return report
+                        if user_id is None or report.get("user_id") == user_id:
+                            return report
             except Exception:
                 return None
         return None

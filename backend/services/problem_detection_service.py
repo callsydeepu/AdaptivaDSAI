@@ -5,9 +5,9 @@ from services.dataset_service import DatasetService
 class ProblemDetectionService:
 
     @staticmethod
-    def detect_problem(dataset_id: str):
+    def detect_problem(dataset_id: str, user_id=None):
 
-        df = DatasetService.get_dataframe(dataset_id)
+        df = DatasetService.get_dataframe(dataset_id, user_id=user_id)
 
         if df is None:
             return None

@@ -1,18 +1,108 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { KPICard } from "../components/KPICard";
 import { PerformanceChart } from "../components/PerformanceChart";
 import { RecentActivity } from "../components/RecentActivity";
 import { useDataset } from "../contexts/DatasetContext";
+import { useCopilot } from "../components/copilot/CopilotContext";
 import { useQuery } from "@tanstack/react-query";
 import api from "../services/api";
+import { AuthContext } from "../contexts/AuthContext";
 
 export function Dashboard() {
   const navigate = useNavigate();
   const { datasets, currentDatasetId, selectDataset } = useDataset();
+  const { setIsCopilotOpen, setInputVal } = useCopilot();
+  const { user, requireAuth } = useContext(AuthContext);
+
+  const demoOverview = {
+    total_datasets: 2,
+    total_models: 4,
+    total_reports: 1,
+    total_conversations: 5,
+    running_jobs: 0,
+    completed_jobs: 4,
+    failed_jobs: 0
+  };
+
+  const demoEvaluation = {
+    best_model: "RandomForestClassifier",
+    best_score: 0.945,
+    problem_type: "Classification"
+  };
+
+  const demoInsights = {
+    rating: "Good",
+    score: 87,
+    duplicates: 0,
+    missing: 4,
+    outliers: 2,
+    insights: [
+      "No duplicate rows detected. Data integrity is intact.",
+      "A total of 4 missing cells were auto-imputed using feature medians.",
+      "Found 2 outlier values in column 'Age', which were automatically clipped.",
+      "The task is identified as Binary Classification suitable for tree models.",
+      "Best performing model trained is RandomForestClassifier with 94.5% accuracy."
+    ]
+  };
+
+  const demoReports = [
+    {
+      dataset_id: "demo-titanic-survival",
+      filename: "titanic_survival_demo.csv",
+      report_path: "reports/demo_titanic_report.pdf",
+      generated_at: new Date().toISOString()
+    }
+  ];
+
+  const demoPreview = [
+    { PassengerId: 1, Survived: 0, Pclass: 3, Name: "Braund, Mr. Owen Harris", Sex: "male", Age: 22 },
+    { PassengerId: 2, Survived: 1, Pclass: 1, Name: "Cumings, Mrs. John Bradley", Sex: "female", Age: 38 },
+    { PassengerId: 3, Survived: 1, Pclass: 3, Name: "Heikkinen, Miss. Laina", Sex: "female", Age: 26 },
+    { PassengerId: 4, Survived: 1, Pclass: 1, Name: "Futrelle, Mrs. Jacques Heath", Sex: "female", Age: 35 },
+    { PassengerId: 5, Survived: 0, Pclass: 3, Name: "Allen, Mr. William Henry", Sex: "male", Age: 35 }
+  ];
+
+  const demoHousePricingEvaluation = {
+    best_model: "RandomForestRegressor",
+    best_score: 0.892,
+    problem_type: "Regression"
+  };
+
+  const demoHousePricingInsights = {
+    rating: "Good",
+    score: 83,
+    duplicates: 0,
+    missing: 15,
+    outliers: 8,
+    insights: [
+      "No duplicate rows detected. Data integrity is intact.",
+      "A total of 15 missing cells were auto-imputed using column medians.",
+      "Found 8 outlier values in 'LotArea' which were clamped.",
+      "Task is identified as Regression suitable for tree-based ensemble models.",
+      "Best performing model trained is RandomForestRegressor with 89.2% R2 score."
+    ]
+  };
+
+  const demoHousePricingPreview = [
+    { Id: 1, MSSubClass: 60, MSZoning: "RL", LotArea: 8450, SalePrice: 208500 },
+    { Id: 2, MSSubClass: 20, MSZoning: "RL", LotArea: 9600, SalePrice: 181500 },
+    { Id: 3, MSSubClass: 60, MSZoning: "RL", LotArea: 11250, SalePrice: 223500 },
+    { Id: 4, MSSubClass: 70, MSZoning: "RL", LotArea: 9550, SalePrice: 140000 },
+    { Id: 5, MSSubClass: 60, MSZoning: "RL", LotArea: 14260, SalePrice: 250000 }
+  ];
 
   // 1. Fetch dashboard overview stats
-  const { data: overview = {
+  const { data: serverOverview, isLoading: isOverviewLoading } = useQuery({
+    queryKey: ["dashboard-overview"],
+    queryFn: async () => {
+      const response = await api.get("/dashboard/overview");
+      return response.data;
+    },
+    refetchInterval: 5000,
+    enabled: !!user,
+  });
+  const overview = user ? (serverOverview || {
     total_datasets: 0,
     total_models: 0,
     total_reports: 0,
@@ -20,58 +110,58 @@ export function Dashboard() {
     running_jobs: 0,
     completed_jobs: 0,
     failed_jobs: 0
-  }, isLoading: isOverviewLoading } = useQuery({
-    queryKey: ["dashboard-overview"],
-    queryFn: async () => {
-      const response = await api.get("/dashboard/overview");
-      return response.data;
-    },
-    refetchInterval: 5000,
-  });
+  }) : demoOverview;
 
   // 2. Fetch evaluation results for active dataset (Best Model Widget)
-  const { data: evaluation, error: evaluationError, isLoading: isEvaluationLoading } = useQuery({
+  const { data: serverEvaluation, error: evaluationError, isLoading: isEvaluationLoading } = useQuery({
     queryKey: ["evaluation", currentDatasetId],
     queryFn: async () => {
       if (!currentDatasetId) return null;
       const response = await api.get(`/evaluation/${currentDatasetId}`);
       return response.data;
     },
-    enabled: !!currentDatasetId,
+    enabled: !!user && !!currentDatasetId && currentDatasetId !== "demo-titanic-survival" && currentDatasetId !== "demo-house-pricing",
     retry: false,
   });
+  
+  const isHousePricingDemo = currentDatasetId === "demo-house-pricing";
+  const evaluation = user ? serverEvaluation : (isHousePricingDemo ? demoHousePricingEvaluation : demoEvaluation);
 
   // 3. Fetch insights for active dataset (Data Quality and AI Insights)
-  const { data: insightsData, isLoading: isInsightsLoading } = useQuery({
+  const { data: serverInsights, isLoading: isInsightsLoading } = useQuery({
     queryKey: ["insights", currentDatasetId],
     queryFn: async () => {
       if (!currentDatasetId) return null;
       const response = await api.get(`/datasets/${currentDatasetId}/insights`);
       return response.data;
     },
-    enabled: !!currentDatasetId,
+    enabled: !!user && !!currentDatasetId && currentDatasetId !== "demo-titanic-survival" && currentDatasetId !== "demo-house-pricing",
   });
+  const insightsData = user ? serverInsights : (isHousePricingDemo ? demoHousePricingInsights : demoInsights);
 
   // 4. Fetch all generated reports
-  const { data: reports = [], isLoading: isReportsLoading } = useQuery({
+  const { data: serverReports, isLoading: isReportsLoading } = useQuery({
     queryKey: ["all-reports"],
     queryFn: async () => {
       const response = await api.get("/reports");
       return response.data;
     },
     refetchInterval: 5000,
+    enabled: !!user,
   });
+  const reports = user ? (serverReports || []) : demoReports;
 
   // 5. Fetch preview data for active dataset (Dataset Preview)
-  const { data: preview = [], isLoading: isPreviewLoading } = useQuery({
+  const { data: serverPreview, isLoading: isPreviewLoading } = useQuery({
     queryKey: ["dataset-preview", currentDatasetId],
     queryFn: async () => {
       if (!currentDatasetId) return [];
       const response = await api.get(`/datasets/${currentDatasetId}/preview`);
       return response.data;
     },
-    enabled: !!currentDatasetId,
+    enabled: !!user && !!currentDatasetId && currentDatasetId !== "demo-titanic-survival" && currentDatasetId !== "demo-house-pricing",
   });
+  const preview = user ? (serverPreview || []) : (isHousePricingDemo ? demoHousePricingPreview : demoPreview);
 
   const totalDatasets = datasets.length;
 
@@ -133,8 +223,8 @@ export function Dashboard() {
           </p>
           <div className="flex flex-wrap gap-4">
             <button 
-              onClick={() => navigate('/upload')}
-              className="bg-primary-container text-on-primary-container px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl font-bold hover:bg-accent-hover active:scale-95 transition-all flex items-center gap-2"
+              onClick={() => requireAuth(() => navigate('/upload'), "upload")}
+              className="bg-primary-container text-on-primary-container px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl font-bold hover:bg-accent-hover active:scale-95 transition-all flex items-center gap-2 cursor-pointer"
             >
               <span className="material-symbols-outlined text-xl">cloud_upload</span>
               Upload Dataset
@@ -446,8 +536,8 @@ export function Dashboard() {
                     </div>
                     
                     <button
-                      onClick={() => window.open(`http://localhost:8000/reports/download/${r.dataset_id}`, "_blank")}
-                      className="p-2 bg-primary-container hover:bg-accent-hover text-on-primary-container rounded-xl flex items-center justify-center transition-all active:scale-95"
+                      onClick={() => requireAuth(() => window.open(`http://localhost:8000/reports/download/${r.dataset_id}`, "_blank"))}
+                      className="p-2 bg-primary-container hover:bg-accent-hover text-on-primary-container rounded-xl flex items-center justify-center transition-all active:scale-95 cursor-pointer"
                       title="Download PDF"
                     >
                       <span className="material-symbols-outlined text-sm">download</span>
@@ -505,8 +595,13 @@ export function Dashboard() {
                 ].map((act, i) => (
                   <button
                     key={i}
-                    onClick={() => navigate(`/copilot?question=${encodeURIComponent(act.q)}`)}
-                    className="px-2.5 py-1.5 bg-surface-container-high hover:bg-primary-container/20 border border-border-subtle/50 text-[10px] text-white rounded-lg transition-all active:scale-95 font-semibold"
+                    onClick={() => {
+                      requireAuth(() => {
+                        setInputVal(act.q);
+                        setIsCopilotOpen(true);
+                      }, "copilot");
+                    }}
+                    className="px-2.5 py-1.5 bg-surface-container-high hover:bg-primary-container/20 border border-border-subtle/50 text-[10px] text-white rounded-lg transition-all active:scale-95 font-semibold cursor-pointer"
                   >
                     {act.text}
                   </button>

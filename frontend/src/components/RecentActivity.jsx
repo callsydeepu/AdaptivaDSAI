@@ -1,18 +1,22 @@
-import React from "react";
+import React, { useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { useDataset } from "../contexts/DatasetContext";
 import { useQuery } from "@tanstack/react-query";
 import api from "../services/api";
+import { AuthContext } from "../contexts/AuthContext";
 
 export function RecentActivity() {
   const navigate = useNavigate();
   const { datasets } = useDataset();
+  const { user } = useContext(AuthContext);
+
   const { data: jobs = [] } = useQuery({
     queryKey: ["jobs"],
     queryFn: async () => {
       const response = await api.get("/jobs");
       return response.data;
     },
+    enabled: !!user,
   });
 
   const { data: sessions = [] } = useQuery({
@@ -21,6 +25,7 @@ export function RecentActivity() {
       const response = await api.get("/copilot/sessions");
       return response.data;
     },
+    enabled: !!user,
   });
 
   // Build dynamic activities from datasets, jobs and sessions

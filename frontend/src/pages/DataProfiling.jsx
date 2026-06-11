@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { QualityScoreGauge } from "../components/QualityScoreGauge";
 import { DatasetPreviewTable } from "../components/DatasetPreviewTable";
@@ -6,37 +6,105 @@ import { useDataset } from "../contexts/DatasetContext";
 import { useQuery } from "@tanstack/react-query";
 import { analysisService } from "../services/analysisService";
 import api from "../services/api";
+import { AuthContext } from "../contexts/AuthContext";
 
 export function DataProfiling() {
   const navigate = useNavigate();
   const { currentDatasetId, currentDataset } = useDataset();
+  const { user, requireAuth } = useContext(AuthContext);
+
+  const isHousePricingDemo = currentDatasetId === "demo-house-pricing";
+  const isDemoDataset = currentDatasetId === "demo-titanic-survival" || isHousePricingDemo;
+  const enabledQuery = !!user && !!currentDatasetId && !isDemoDataset;
+
+  // Mock data fallbacks for Demo Datasets
+  const demoProfileTitanic = {
+    rows: 891,
+    columns: 12,
+    missing_values: 866,
+    duplicate_rows: 0
+  };
+
+  const demoStatsTitanic = {
+    PassengerId: { min: 1, max: 891, mean: 446.00 },
+    Age: { min: 0.42, max: 80.00, mean: 29.70 },
+    SibSp: { min: 0, max: 8, mean: 0.52 },
+    Parch: { min: 0, max: 6, mean: 0.38 },
+    Fare: { min: 0, max: 512.33, mean: 32.20 }
+  };
+
+  const demoEdaTitanic = {
+    outliers: { PassengerId: 0, Age: 7, SibSp: 12, Parch: 15, Fare: 116 },
+    numeric_columns: ["PassengerId", "Age", "SibSp", "Parch", "Fare"],
+    categorical_columns: ["Survived", "Pclass", "Name", "Sex", "Ticket", "Cabin", "Embarked"]
+  };
+
+  const demoPreviewTitanic = [
+    { PassengerId: 1, Survived: 0, Pclass: 3, Name: "Braund, Mr. Owen Harris", Sex: "male", Age: 22 },
+    { PassengerId: 2, Survived: 1, Pclass: 1, Name: "Cumings, Mrs. John Bradley", Sex: "female", Age: 38 },
+    { PassengerId: 3, Survived: 1, Pclass: 3, Name: "Heikkinen, Miss. Laina", Sex: "female", Age: 26 },
+    { PassengerId: 4, Survived: 1, Pclass: 1, Name: "Futrelle, Mrs. Jacques Heath", Sex: "female", Age: 35 },
+    { PassengerId: 5, Survived: 0, Pclass: 3, Name: "Allen, Mr. William Henry", Sex: "male", Age: 35 }
+  ];
+
+  const demoProfileHouse = {
+    rows: 1460,
+    columns: 81,
+    missing_values: 5960,
+    duplicate_rows: 0
+  };
+
+  const demoStatsHouse = {
+    Id: { min: 1, max: 1460, mean: 730.50 },
+    MSSubClass: { min: 20, max: 190, mean: 56.90 },
+    LotArea: { min: 1300, max: 215245, mean: 10516.80 },
+    YearBuilt: { min: 1872, max: 2010, mean: 1971.26 },
+    GrLivArea: { min: 334, max: 5642, mean: 1515.46 },
+    FullBath: { min: 0, max: 3, mean: 1.56 },
+    GarageCars: { min: 0, max: 4, mean: 1.77 },
+    SalePrice: { min: 34900, max: 755000, mean: 180921.20 }
+  };
+
+  const demoEdaHouse = {
+    outliers: { Id: 0, MSSubClass: 0, LotArea: 69, YearBuilt: 0, GrLivArea: 31, FullBath: 0, GarageCars: 0, SalePrice: 61 },
+    numeric_columns: ["Id", "MSSubClass", "LotArea", "YearBuilt", "GrLivArea", "FullBath", "GarageCars", "SalePrice"],
+    categorical_columns: ["MSZoning", "Street", "Alley", "LotShape", "LandContour", "Utilities", "LotConfig"]
+  };
+
+  const demoPreviewHouse = [
+    { Id: 1, MSSubClass: 60, MSZoning: "RL", LotArea: 8450, SalePrice: 208500 },
+    { Id: 2, MSSubClass: 20, MSZoning: "RL", LotArea: 9600, SalePrice: 181500 },
+    { Id: 3, MSSubClass: 60, MSZoning: "RL", LotArea: 11250, SalePrice: 223500 },
+    { Id: 4, MSSubClass: 70, MSZoning: "RL", LotArea: 9550, SalePrice: 140000 },
+    { Id: 5, MSSubClass: 60, MSZoning: "RL", LotArea: 14260, SalePrice: 250000 }
+  ];
 
   // Queries
-  const { data: profile, isLoading: isProfileLoading, error: profileError } = useQuery({
+  const { data: serverProfile, isLoading: isProfileLoading, error: profileError } = useQuery({
     queryKey: ["profiling", currentDatasetId],
     queryFn: () => analysisService.getProfiling(currentDatasetId),
-    enabled: !!currentDatasetId,
+    enabled: enabledQuery,
   });
 
-  const { data: stats, isLoading: isStatsLoading } = useQuery({
+  const { data: serverStats, isLoading: isStatsLoading } = useQuery({
     queryKey: ["statistics", currentDatasetId],
     queryFn: () => analysisService.getStatistics(currentDatasetId),
-    enabled: !!currentDatasetId,
+    enabled: enabledQuery,
   });
 
-  const { data: eda, isLoading: isEdaLoading } = useQuery({
+  const { data: serverEda, isLoading: isEdaLoading } = useQuery({
     queryKey: ["eda", currentDatasetId],
     queryFn: () => analysisService.getEDA(currentDatasetId),
-    enabled: !!currentDatasetId,
+    enabled: enabledQuery,
   });
 
-  const { data: preview, isLoading: isPreviewLoading } = useQuery({
+  const { data: serverPreview, isLoading: isPreviewLoading } = useQuery({
     queryKey: ["preview", currentDatasetId],
     queryFn: async () => {
       const response = await api.get(`/datasets/${currentDatasetId}/preview`);
       return response.data;
     },
-    enabled: !!currentDatasetId,
+    enabled: enabledQuery,
   });
 
   if (!currentDatasetId) {
@@ -57,7 +125,7 @@ export function DataProfiling() {
     );
   }
 
-  const isLoading = isProfileLoading || isStatsLoading || isEdaLoading || isPreviewLoading;
+  const isLoading = enabledQuery && (isProfileLoading || isStatsLoading || isEdaLoading || isPreviewLoading);
 
   if (isLoading) {
     return (
@@ -68,7 +136,7 @@ export function DataProfiling() {
     );
   }
 
-  if (profileError || !profile) {
+  if (enabledQuery && (profileError || !serverProfile)) {
     return (
       <div className="bg-error/10 border border-error/20 rounded-2xl p-6 flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
         <span className="material-symbols-outlined text-4xl text-error">error</span>
@@ -85,6 +153,11 @@ export function DataProfiling() {
       </div>
     );
   }
+
+  const profile = enabledQuery ? serverProfile : (isHousePricingDemo ? demoProfileHouse : demoProfileTitanic);
+  const stats = enabledQuery ? serverStats : (isHousePricingDemo ? demoStatsHouse : demoStatsTitanic);
+  const eda = enabledQuery ? serverEda : (isHousePricingDemo ? demoEdaHouse : demoEdaTitanic);
+  const preview = enabledQuery ? serverPreview : (isHousePricingDemo ? demoPreviewHouse : demoPreviewTitanic);
 
   // Quality score formula
   const missingCellRatio = profile.missing_values / (profile.rows * profile.columns || 1);
@@ -146,6 +219,98 @@ export function DataProfiling() {
       });
     });
   }
+
+  const renderHeatmap = () => {
+    if (enabledQuery) {
+      return (
+        <div className="aspect-square bg-surface-container rounded-lg overflow-hidden relative flex items-center justify-center border border-border-subtle/50 shadow-inner">
+          <img 
+            className="w-full h-full object-cover" 
+            alt="A sophisticated dark-themed correlation heatmap visualization."
+            src={`${api.defaults.baseURL || "http://localhost:8000"}/datasets/${currentDatasetId}/correlation-plot`}
+          />
+          <div 
+            className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity backdrop-blur-[2px]"
+          >
+            <a
+              href={`${api.defaults.baseURL || "http://localhost:8000"}/datasets/${currentDatasetId}/correlation-plot`}
+              target="_blank"
+              rel="noreferrer"
+              className="bg-primary-container text-on-primary-container px-4 py-2 rounded-full font-bold text-label-md flex items-center gap-2 hover:scale-105 active:scale-95 transition-all"
+            >
+              <span className="material-symbols-outlined">zoom_in</span>
+              Open Full Matrix
+            </a>
+          </div>
+        </div>
+      );
+    }
+
+    const cols = isHousePricingDemo 
+      ? ["Id", "LotArea", "GrLivArea", "GarageCars", "SalePrice"]
+      : ["PassengerId", "Survived", "Pclass", "Age", "Fare"];
+    
+    const matrix = isHousePricingDemo ? [
+      [1.0, 0.07, 0.08, 0.16, -0.02],
+      [0.07, 1.0, 0.26, 0.15, 0.26],
+      [0.08, 0.26, 1.0, 0.47, 0.71],
+      [0.16, 0.15, 0.47, 1.0, 0.64],
+      [-0.02, 0.26, 0.71, 0.64, 1.0]
+    ] : [
+      [1.0, -0.01, -0.04, 0.04, 0.01],
+      [-0.01, 1.0, -0.34, -0.08, 0.26],
+      [-0.04, -0.34, 1.0, -0.37, -0.55],
+      [0.04, -0.08, -0.37, 1.0, 0.10],
+      [0.01, 0.26, -0.55, 0.10, 1.0]
+    ];
+
+    const getColorClass = (val) => {
+      if (val === 1.0) return "bg-[#ffe251] text-black font-bold";
+      if (val > 0.6) return "bg-[#ffe251]/80 text-black";
+      if (val > 0.3) return "bg-[#ffe251]/50 text-white";
+      if (val > 0.1) return "bg-[#ffe251]/20 text-white/80";
+      if (val > -0.1) return "bg-surface-container-highest text-white/50";
+      if (val > -0.3) return "bg-[#ea4335]/25 text-white/80";
+      if (val > -0.6) return "bg-[#ea4335]/50 text-white";
+      return "bg-[#ea4335]/80 text-white";
+    };
+
+    return (
+      <div className="aspect-square bg-surface-container rounded-lg p-3 flex flex-col justify-between border border-border-subtle/50 shadow-inner relative group">
+        <div className="grid grid-cols-6 gap-1 h-full w-full text-[9px] font-mono">
+          <div className="flex items-center justify-center text-on-surface-variant font-bold truncate"></div>
+          {cols.map(c => (
+            <div key={c} className="flex items-center justify-center text-on-surface-variant font-bold text-center truncate select-none" title={c}>
+              {c.substring(0, 4)}
+            </div>
+          ))}
+
+          {cols.map((rowName, rIdx) => (
+            <React.Fragment key={rowName}>
+              <div className="flex items-center text-on-surface-variant font-bold truncate pr-1 select-none" title={rowName}>
+                {rowName.substring(0, 4)}
+              </div>
+              {matrix[rIdx].map((val, cIdx) => (
+                <div key={cIdx} className={`rounded flex items-center justify-center transition-all ${getColorClass(val)}`} title={`${rowName} vs ${cols[cIdx]}: ${val}`}>
+                  {val.toFixed(2)}
+                </div>
+              ))}
+            </React.Fragment>
+          ))}
+        </div>
+        <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-[2px] rounded-lg p-4 text-center">
+          <p className="text-white text-xs font-bold mb-2">Interactive Correlation Heatmap</p>
+          <button
+            onClick={() => requireAuth(() => {}, "view_correlation")}
+            className="bg-primary-container text-on-primary-container px-4 py-1.5 rounded-full font-bold text-[11px] flex items-center gap-1 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-sm">zoom_in</span>
+            Sign In to Unlock
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-10 max-w-[1600px] mx-auto pb-12">
@@ -271,24 +436,23 @@ export function DataProfiling() {
           {/* Correlation Heatmap */}
           <div className="glass-panel rounded-xl p-6 flex flex-col justify-between">
             <div>
-              <h4 className="font-label-md text-on-surface-variant uppercase tracking-widest mb-4 text-xs">
-                Correlation Heatmap
-              </h4>
-              <div className="aspect-square bg-surface-container rounded-lg overflow-hidden relative flex items-center justify-center border border-border-subtle/50 shadow-inner">
-                <img 
-                  className="w-full h-full object-cover" 
-                  alt="A sophisticated dark-themed correlation heatmap visualization."
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuAvnR063vKMn6KXKb1eUr9qtOBZBb8Fjdgmt8X57FoEiPQdJ3LXFAfsdeuGkesJS3kmph_OFtIVf7XcKmDlZqxsT-l2MFgafJmO3GQcJPtKEYG8ZA5ouR7AZH1wfDXhmtDY6vz11MR06t3o1dwzni41dQWPTH9AiWLkcZb7bWEx6erI2E5zvdpqMRJ5-rtIbO14NE5Ng-YSsf_KEgWjrhRy1ch4-y6YqNuoHXJotyZwLdqmanDMnrk9B7u6EmeD5XPB6jqRYuo-BQU"
-                />
-                <div 
-                  className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity backdrop-blur-[2px]"
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="font-label-md text-on-surface-variant uppercase tracking-widest text-xs">
+                  Correlation Heatmap
+                </h4>
+                <button 
+                  onClick={() => {
+                    requireAuth(() => {
+                      window.open(`${api.defaults.baseURL || "http://localhost:8000"}/datasets/${currentDatasetId}/correlation-plot`, '_blank');
+                    }, "download_correlation");
+                  }}
+                  className="text-primary-fixed hover:text-white flex items-center gap-1 text-[11px] font-bold transition-all bg-transparent border-none cursor-pointer"
                 >
-                  <div className="bg-primary-container text-on-primary-container px-4 py-2 rounded-full font-bold text-label-md flex items-center gap-2">
-                    <span className="material-symbols-outlined">zoom_in</span>
-                    Correlation Matrix Computed
-                  </div>
-                </div>
+                  <span className="material-symbols-outlined text-sm">download</span>
+                  Download Matrix
+                </button>
               </div>
+              {renderHeatmap()}
             </div>
           </div>
         </div>

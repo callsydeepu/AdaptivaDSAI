@@ -12,10 +12,11 @@ class FeatureEngineeringService:
         experiment_id: str = None, 
         target_column: str = None, 
         imputation_strategy: str = "median", 
-        outlier_threshold: float = None
+        outlier_threshold: float = None,
+        user_id=None
     ):
         # 1. Load dataset
-        df = DatasetService.get_dataframe(dataset_id)
+        df = DatasetService.get_dataframe(dataset_id, user_id=user_id)
 
         if df is None:
             return None

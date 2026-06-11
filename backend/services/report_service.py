@@ -22,13 +22,13 @@ from core.logger import logger
 class ReportService:
 
     @staticmethod
-    def generate_report(dataset_id: str):
+    def generate_report(dataset_id: str, user_id=None):
         # 1. Load Inputs
-        dataset = DatasetService.get_dataset_by_id(dataset_id)
+        dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=user_id)
         if dataset is None:
             return None
 
-        evaluation = TrainingRepository.get_evaluation_result(dataset_id)
+        evaluation = TrainingRepository.get_evaluation_result(dataset_id, user_id=user_id)
         if evaluation is None:
             raise FileNotFoundError("Evaluation results not found")
 
@@ -380,7 +380,7 @@ class ReportService:
             "generated_at": datetime.now().isoformat()
         }
 
-        ReportRepository.save_report_metadata(meta_entry)
+        ReportRepository.save_report_metadata(meta_entry, user_id=user_id)
         logger.info(f"Report generated successfully for dataset {dataset_id} at {report_path}")
 
         return meta_entry

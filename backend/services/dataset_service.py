@@ -10,7 +10,7 @@ from core.logger import logger
 class DatasetService:
 
     @staticmethod
-    async def upload_dataset(file):
+    async def upload_dataset(file, user_id=None):
 
         dataset_id = str(uuid.uuid4())
 
@@ -73,24 +73,26 @@ class DatasetService:
             "columns": len(df.columns), 
             "uploaded_at": datetime.now().isoformat()
         }
+        if user_id:
+            metadata["user_id"] = user_id
 
-        DatasetRepository.save_dataset(metadata)
+        DatasetRepository.save_dataset(metadata, user_id=user_id)
         logger.info(f"Dataset uploaded successfully: {file.filename} as {filename} ({dataset_id})")
 
         return metadata
 
 
     @staticmethod
-    def get_all_datasets():
-        return DatasetRepository.get_all_datasets()
+    def get_all_datasets(user_id=None):
+        return DatasetRepository.get_all_datasets(user_id=user_id)
 
     @staticmethod
-    def get_dataset_by_id(dataset_id):
-        return DatasetRepository.get_dataset_by_id(dataset_id)
+    def get_dataset_by_id(dataset_id, user_id=None):
+        return DatasetRepository.get_dataset_by_id(dataset_id, user_id=user_id)
 
     @staticmethod
-    def delete_dataset(dataset_id):
-        dataset_to_delete = DatasetRepository.get_dataset_by_id(dataset_id)
+    def delete_dataset(dataset_id, user_id=None):
+        dataset_to_delete = DatasetRepository.get_dataset_by_id(dataset_id, user_id=user_id)
 
         if dataset_to_delete is None:
             return False
@@ -104,11 +106,11 @@ class DatasetService:
             os.remove(file_path)
 
         logger.info(f"Dataset deleted successfully: {dataset_id}")
-        return DatasetRepository.delete_dataset(dataset_id)
+        return DatasetRepository.delete_dataset(dataset_id, user_id=user_id)
     
     @staticmethod
-    def get_dataframe(dataset_id):
-        dataset = DatasetRepository.get_dataset_by_id(dataset_id)
+    def get_dataframe(dataset_id, user_id=None):
+        dataset = DatasetRepository.get_dataset_by_id(dataset_id, user_id=user_id)
 
         if dataset is None:
             return None

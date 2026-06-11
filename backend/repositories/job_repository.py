@@ -6,7 +6,10 @@ JOBS_FILE = "data/jobs.json"
 
 class JobRepository:
     @staticmethod
-    def save_job(job_data):
+    def save_job(job_data, user_id=None):
+        if user_id:
+            job_data["user_id"] = user_id
+            
         if db_connected and db is not None:
             try:
                 doc = job_data.copy()
@@ -35,10 +38,13 @@ class JobRepository:
             print(f"Error writing job to local JSON: {e}")
 
     @staticmethod
-    def get_job_by_id(job_id):
+    def get_job_by_id(job_id, user_id=None):
         if db_connected and db is not None:
             try:
-                doc = db.training_jobs.find_one({"_id": job_id})
+                query = {"_id": job_id}
+                if user_id:
+                    query["user_id"] = user_id
+                doc = db.training_jobs.find_one(query)
                 if doc and "job_id" in doc:
                     doc.pop("_id", None)
                     return doc
@@ -52,16 +58,18 @@ class JobRepository:
                     jobs = json.load(f)
                 for j in jobs:
                     if j.get("job_id") == job_id:
-                        return j
+                        if user_id is None or j.get("user_id") == user_id:
+                            return j
             except Exception:
                 pass
         return None
 
     @staticmethod
-    def get_all_jobs():
+    def get_all_jobs(user_id=None):
         if db_connected and db is not None:
             try:
-                docs = list(db.training_jobs.find())
+                query = {"user_id": user_id} if user_id else {}
+                docs = list(db.training_jobs.find(query))
                 result = []
                 for doc in docs:
                     if "job_id" in doc:
@@ -76,6 +84,8 @@ class JobRepository:
             try:
                 with open(JOBS_FILE, "r") as f:
                     jobs = json.load(f)
+                if user_id:
+                    return [j for j in jobs if "job_id" in j and j.get("user_id") == user_id]
                 return [j for j in jobs if "job_id" in j]
             except Exception:
                 pass

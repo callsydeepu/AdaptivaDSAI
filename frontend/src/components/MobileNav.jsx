@@ -20,7 +20,7 @@ export function MobileNav() {
       </NavLink>
 
       <div 
-        onClick={() => navigate("/under-construction")}
+        onClick={() => navigate("/experiment")}
         className="-mt-8 bg-primary-container text-on-primary-container w-14 h-14 rounded-full flex items-center justify-center shadow-lg shadow-primary-container/20 active:scale-90 transition-transform cursor-pointer"
       >
         <span className="material-symbols-outlined text-2xl font-bold">add</span>
@@ -29,11 +29,6 @@ export function MobileNav() {
       <NavLink to="/models" className={({ isActive }) => isActive ? activeClass : inactiveClass}>
         <span className="material-symbols-outlined">model_training</span>
         <span className="text-[10px] font-medium">Models</span>
-      </NavLink>
-
-      <NavLink to="/copilot" className={({ isActive }) => isActive ? activeClass : inactiveClass}>
-        <span className="material-symbols-outlined">auto_awesome</span>
-        <span className="text-[10px] font-medium">Copilot</span>
       </NavLink>
     </nav>
   );

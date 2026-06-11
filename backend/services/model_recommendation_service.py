@@ -7,9 +7,9 @@ from services.feature_engineering_service import FeatureEngineeringService
 class ModelRecommendationService:
 
     @staticmethod
-    def recommend_models(dataset_id: str):
+    def recommend_models(dataset_id: str, user_id=None):
         # 1. Load Problem Detection Output
-        problem_info = ProblemDetectionService.detect_problem(dataset_id)
+        problem_info = ProblemDetectionService.detect_problem(dataset_id, user_id=user_id)
         if problem_info is None:
             return None
 
@@ -23,7 +23,7 @@ class ModelRecommendationService:
         processed_path = os.path.join("processed", f"{dataset_id}.csv")
         if not os.path.exists(processed_path):
             # Trigger feature engineering dynamically
-            fe_res = FeatureEngineeringService.process_dataset(dataset_id)
+            fe_res = FeatureEngineeringService.process_dataset(dataset_id, user_id=user_id)
             if fe_res is None:
                 return None
 

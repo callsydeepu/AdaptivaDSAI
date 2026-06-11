@@ -18,7 +18,7 @@ export function Sidebar() {
           </div>
         </div>
         <button 
-          onClick={() => navigate('/under-construction')}
+          onClick={() => navigate('/experiment')}
           className="w-full mt-6 bg-primary-container hover:bg-accent-hover text-on-primary-container font-bold py-3 rounded-xl active:scale-95 transition-transform duration-150 shadow-lg shadow-primary-container/10"
         >
           New Experiment
@@ -40,11 +40,6 @@ export function Sidebar() {
           <span className="material-symbols-outlined group-hover:text-primary-fixed transition-colors">analytics</span>
           <span className="font-label-md text-label-md">Data Profiling</span>
         </NavLink>
-        
-        <NavLink to="/copilot" className={({ isActive }) => isActive ? activeClass : inactiveClass}>
-          <span className="material-symbols-outlined group-hover:text-primary-fixed transition-colors">auto_awesome</span>
-          <span className="font-label-md text-label-md">AI Copilot</span>
-        </NavLink>
 
         <NavLink to="/models" className={({ isActive }) => isActive ? activeClass : inactiveClass}>
           <span className="material-symbols-outlined group-hover:text-primary-fixed transition-colors">model_training</span>
@@ -54,11 +49,6 @@ export function Sidebar() {
         <NavLink to="/reports" className={({ isActive }) => isActive ? activeClass : inactiveClass}>
           <span className="material-symbols-outlined group-hover:text-primary-fixed transition-colors">description</span>
           <span className="font-label-md text-label-md">Reports</span>
-        </NavLink>
-
-        <NavLink to="/settings" className={({ isActive }) => isActive ? activeClass : inactiveClass}>
-          <span className="material-symbols-outlined group-hover:text-primary-fixed transition-colors">settings</span>
-          <span className="font-label-md text-label-md">Settings</span>
         </NavLink>
       </nav>
     </aside>

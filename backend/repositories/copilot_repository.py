@@ -15,13 +15,15 @@ class CopilotRepository:
     """
 
     @staticmethod
-    def create_session(dataset_id: str) -> dict:
+    def create_session(dataset_id: str, user_id=None) -> dict:
         session_id = str(uuid.uuid4())
         session_data = {
             "session_id": session_id,
             "dataset_id": dataset_id,
             "created_at": datetime.now().isoformat()
         }
+        if user_id:
+            session_data["user_id"] = user_id
 
         # 1. Save to MongoDB
         if db_connected and db is not None:
@@ -51,11 +53,14 @@ class CopilotRepository:
         return session_data
 
     @staticmethod
-    def get_sessions(dataset_id: str) -> list:
+    def get_sessions(dataset_id: str, user_id=None) -> list:
         # Try MongoDB first
         if db_connected and db is not None:
             try:
-                cursor = db.copilot_sessions.find({"dataset_id": dataset_id}).sort("created_at", -1)
+                query = {"dataset_id": dataset_id}
+                if user_id:
+                    query["user_id"] = user_id
+                cursor = db.copilot_sessions.find(query).sort("created_at", -1)
                 sessions = list(cursor)
                 for s in sessions:
                     s.pop("_id", None)
@@ -68,7 +73,10 @@ class CopilotRepository:
             try:
                 with open(SESSIONS_FILE, "r") as f:
                     sessions = json.load(f)
-                filtered = [s for s in sessions if s.get("dataset_id") == dataset_id]
+                filtered = [
+                    s for s in sessions 
+                    if s.get("dataset_id") == dataset_id and (user_id is None or s.get("user_id") == user_id)
+                ]
                 filtered.sort(key=lambda x: x.get("created_at", ""), reverse=True)
                 return filtered
             except Exception:
@@ -76,7 +84,7 @@ class CopilotRepository:
         return []
 
     @staticmethod
-    def save_chat(dataset_id: str, session_id: str, question: str, answer: str) -> dict:
+    def save_chat(dataset_id: str, session_id: str, question: str, answer: str, user_id=None) -> dict:
         chat_id = str(uuid.uuid4())
         chat_data = {
             "chat_id": chat_id,
@@ -86,6 +94,8 @@ class CopilotRepository:
             "answer": answer,
             "created_at": datetime.now().isoformat()
         }
+        if user_id:
+            chat_data["user_id"] = user_id
         
         # 1. Save to MongoDB (if connected)
         if db_connected and db is not None:
@@ -117,14 +127,17 @@ class CopilotRepository:
         return chat_data
 
     @staticmethod
-    def get_session_history(session_id: str) -> list:
+    def get_session_history(session_id: str, user_id=None) -> list:
         """
         Retrieves message logs belonging to the target session.
         """
         # Read from MongoDB first
         if db_connected and db is not None:
             try:
-                cursor = db.copilot_conversations.find({"session_id": session_id}).sort("created_at", 1)
+                query = {"session_id": session_id}
+                if user_id:
+                    query["user_id"] = user_id
+                cursor = db.copilot_conversations.find(query).sort("created_at", 1)
                 history = list(cursor)
                 for h in history:
                     h.pop("_id", None)
@@ -137,7 +150,10 @@ class CopilotRepository:
             try:
                 with open(HISTORY_FILE, "r") as f:
                     history = json.load(f)
-                filtered = [h for h in history if h.get("session_id") == session_id]
+                filtered = [
+                    h for h in history 
+                    if h.get("session_id") == session_id and (user_id is None or h.get("user_id") == user_id)
+                ]
                 filtered.sort(key=lambda x: x.get("created_at", ""))
                 return filtered
             except Exception:
