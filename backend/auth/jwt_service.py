@@ -37,6 +37,30 @@ class JWTService:
         return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
     @staticmethod
+    def create_export_state_token(user_id: str, dataset_id: str, mode: str, export_type: str = "colab_drive") -> str:
+        """Short-lived signed state for OAuth export flows. No Google tokens stored."""
+        expire = datetime.now(timezone.utc) + timedelta(minutes=10)
+        payload = {
+            "sub": user_id,
+            "dataset_id": dataset_id,
+            "mode": mode,
+            "export_type": export_type,
+            "exp": expire,
+            "type": "export_state",
+        }
+        return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+    @staticmethod
+    def verify_export_state_token(state: str) -> dict:
+        payload = JWTService.verify_token(state)
+        if payload.get("type") != "export_state":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid export state token",
+            )
+        return payload
+
+    @staticmethod
     def verify_token(token: str) -> dict:
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])

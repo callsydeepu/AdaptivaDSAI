@@ -4,6 +4,9 @@ from pydantic import BaseModel, EmailStr
 from auth.service import AuthService
 from auth.jwt_service import JWTService, get_current_user
 from auth.oauth_service import OAuthService
+from services.export.colab_drive_exporter import ColabDriveExporter
+from core.logger import logger
+from urllib.parse import quote
 import os
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -104,8 +107,55 @@ def google_login():
     return RedirectResponse(auth_url)
 
 
+def _complete_drive_colab_export(code: str, state: str, redirect_uri: str):
+    export_state = JWTService.verify_export_state_token(state)
+    token_data = OAuthService.exchange_google_code(code, redirect_uri)
+    access_token = token_data.get("access_token")
+    if not access_token:
+        return RedirectResponse(
+            f"{FRONTEND_URL}/#/colab-launch?error={quote('Google did not return a Drive access token')}"
+        )
+
+    exporter = ColabDriveExporter()
+    result = exporter.export(
+        dataset_id=export_state["dataset_id"],
+        user_id=export_state["sub"],
+        mode=export_state.get("mode", "clean"),
+        access_token=access_token,
+    )
+
+    colab_url = quote(result.colab_url or "", safe="")
+    file_id = quote(result.file_id or "", safe="")
+    web_view = quote(result.web_view_link or "", safe="")
+    redirect_target = (
+        f"{FRONTEND_URL}/#/colab-launch?colab_url={colab_url}&file_id={file_id}&web_view_link={web_view}"
+    )
+    logger.info(
+        "[ColabExport] redirect file_id=%s colab_url=%s redirect_url=%s",
+        result.file_id,
+        result.colab_url,
+        redirect_target,
+    )
+    return RedirectResponse(redirect_target)
+
+
 @router.get("/google/callback")
-def google_callback(code: str = None, error: str = None):
+def google_callback(code: str = None, error: str = None, state: str = None):
+    # Colab export: same redirect URI as login, distinguished by signed state JWT
+    if state:
+        if error or not code:
+            message = quote(error or "Google Drive authentication cancelled")
+            return RedirectResponse(f"{FRONTEND_URL}/#/colab-launch?error={message}")
+        redirect_uri = OAuthService.resolve_google_redirect_uri(for_drive=True)
+        logger.info("[OAuth] drive_callback redirect_uri=%s (unified /google/callback)", redirect_uri)
+        try:
+            return _complete_drive_colab_export(code, state, redirect_uri)
+        except PermissionError as exc:
+            return RedirectResponse(f"{FRONTEND_URL}/#/colab-launch?error={quote(str(exc))}")
+        except Exception as exc:
+            logger.error(f"Google Drive Colab export failed: {exc}")
+            return RedirectResponse(f"{FRONTEND_URL}/#/colab-launch?error={quote(str(exc))}")
+
     if error or not code:
         # Redirect to login with error parameter
         return RedirectResponse(f"{FRONTEND_URL}/#/login?error=Google authentication cancelled")
@@ -128,6 +178,31 @@ def google_callback(code: str = None, error: str = None):
         return RedirectResponse(f"{FRONTEND_URL}/#/oauth-callback?token={access_token}&refresh={refresh_token}")
     except Exception as e:
         return RedirectResponse(f"{FRONTEND_URL}/#/login?error={str(e)}")
+
+
+@router.get("/google/drive/callback")
+def google_drive_callback(code: str = None, state: str = None, error: str = None):
+    """
+    One-time Drive OAuth callback for Colab export.
+    Google access tokens are used immediately and never stored.
+    """
+    if error or not code or not state:
+        message = quote(error or "Google Drive authentication cancelled")
+        return RedirectResponse(f"{FRONTEND_URL}/#/colab-launch?error={message}")
+
+    redirect_uri = os.environ.get(
+        "GOOGLE_DRIVE_REDIRECT_URI",
+        "http://localhost:8000/auth/google/drive/callback",
+    )
+    logger.info("[OAuth] drive_callback redirect_uri=%s (legacy /google/drive/callback)", redirect_uri)
+
+    try:
+        return _complete_drive_colab_export(code, state, redirect_uri)
+    except PermissionError as exc:
+        return RedirectResponse(f"{FRONTEND_URL}/#/colab-launch?error={quote(str(exc))}")
+    except Exception as exc:
+        logger.error(f"Google Drive Colab export failed: {exc}")
+        return RedirectResponse(f"{FRONTEND_URL}/#/colab-launch?error={quote(str(exc))}")
 
 
 # GitHub OAuth Endpoints

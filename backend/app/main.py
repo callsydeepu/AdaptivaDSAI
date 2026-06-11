@@ -167,7 +167,7 @@ def export_notebook(dataset_id: str, mode: str = "clean", current_user: dict = D
         return StreamingResponse(
             io.BytesIO(notebook_str.encode("utf-8")),
             media_type="application/x-ipynb+json",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except ValueError as ve:
         raise NotFoundException(str(ve))
@@ -192,7 +192,10 @@ def export_script(dataset_id: str, mode: str = "clean", current_user: dict = Dep
         return StreamingResponse(
             io.BytesIO(script_str.encode("utf-8")),
             media_type="text/x-python",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "text/x-python; charset=utf-8",
+            },
         )
     except ValueError as ve:
         raise NotFoundException(str(ve))
@@ -204,6 +207,56 @@ def export_script(dataset_id: str, mode: str = "clean", current_user: dict = Dep
 class ColabExportRequest(BaseModel):
     github_token: str = None
     mode: str = "clean"
+
+
+class DriveColabInitRequest(BaseModel):
+    mode: str = "clean"
+
+
+@app.post("/datasets/{dataset_id}/export/colab/drive/init")
+def init_drive_colab_export(
+    dataset_id: str,
+    request: DriveColabInitRequest = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Start one-click Google Drive → Colab export.
+    Returns a Google OAuth URL; tokens are ephemeral and never stored.
+    """
+    from auth.jwt_service import JWTService
+    from auth.oauth_service import OAuthService
+    from services.export.colab_drive_exporter import ColabDriveExporter
+
+    mode = request.mode if request and request.mode else "clean"
+    try:
+        ColabDriveExporter.validate_dataset_access(dataset_id, current_user["user_id"])
+        state = JWTService.create_export_state_token(
+            current_user["user_id"], dataset_id, mode, export_type="colab_drive"
+        )
+        auth_url = OAuthService.get_google_drive_auth_url(state)
+        redirect_uri = OAuthService.resolve_google_redirect_uri(for_drive=True)
+        logger.info(
+            "[OAuth] colab_export_init dataset_id=%s redirect_uri=%s",
+            dataset_id,
+            redirect_uri,
+        )
+        return {
+            "auth_url": auth_url,
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "steps": [
+                "preparing_notebook",
+                "generating_code",
+                "awaiting_drive_consent",
+                "uploading_to_drive",
+                "launching_colab",
+            ],
+        }
+    except ValueError as ve:
+        raise NotFoundException(str(ve))
+    except Exception as e:
+        logger.error(f"Failed to initialize Drive Colab export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/datasets/{dataset_id}/export/colab")
@@ -1014,4 +1067,4 @@ def get_experiment_status(experiment_id: str, current_user: dict = Depends(get_c
 
 
 
-
+
