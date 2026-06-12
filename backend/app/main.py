@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -494,7 +494,6 @@ def get_evaluation(dataset_id: str, current_user: dict = Depends(get_current_use
             status_code=500,
             detail=f"Evaluation failed: {str(e)}"
         )
-
 
 @app.get("/reports/generate/{dataset_id}")
 def generate_report(dataset_id: str, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
@@ -1038,6 +1037,27 @@ def create_experiment(request: ExperimentCreateRequest, background_tasks: Backgr
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/experiments")
+def get_all_user_experiments(dataset_id: str = None, current_user: dict = Depends(get_current_user)):
+    from services.experiment_service import ExperimentService
+    from services.dataset_service import DatasetService
+    if dataset_id:
+        dataset = DatasetService.get_dataset_by_id(dataset_id, user_id=current_user["user_id"])
+        if dataset is None:
+            raise NotFoundException("Dataset not found")
+        return ExperimentService.get_experiments(dataset_id, user_id=current_user["user_id"])
+    
+    experiments = ExperimentService.get_all_experiments(user_id=current_user["user_id"])
+    for e in experiments:
+        ds_id = e.get("dataset_id")
+        if ds_id:
+            ds = DatasetService.get_dataset_by_id(ds_id, user_id=current_user["user_id"])
+            if ds:
+                e["dataset_filename"] = ds.get("filename")
+            else:
+                e["dataset_filename"] = "Deleted Dataset"
+    return experiments
 
 @app.get("/experiments/{dataset_id}")
 def get_experiments(dataset_id: str, current_user: dict = Depends(get_current_user)):

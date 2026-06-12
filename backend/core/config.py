@@ -40,6 +40,7 @@ REPORT_DIR = os.getenv("REPORT_DIR", "reports")
 MODEL_DIR = os.getenv("MODEL_DIR", "trained_models")
 PROCESSED_DIR = os.getenv("PROCESSED_DIR", "processed")
 EVALUATION_RESULTS_DIR = os.getenv("EVALUATION_RESULTS_DIR", "evaluation_results")
+PREDICTION_DIR = os.getenv("PREDICTION_DIR", "predictions")
 
 # Ensure critical directories exist
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -47,6 +48,7 @@ os.makedirs(REPORT_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 os.makedirs(EVALUATION_RESULTS_DIR, exist_ok=True)
+os.makedirs(PREDICTION_DIR, exist_ok=True)
 
 # LLM Foundation Configurations
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")

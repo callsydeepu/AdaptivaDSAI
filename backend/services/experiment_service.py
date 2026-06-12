@@ -50,3 +50,8 @@ class ExperimentService:
     def get_experiment(experiment_id: str, user_id=None) -> dict:
         logger.info(f"Fetching experiment details for: {experiment_id}")
         return ExperimentRepository.get_experiment(experiment_id, user_id=user_id)
+
+    @staticmethod
+    def get_all_experiments(user_id=None) -> list:
+        logger.info(f"Fetching all experiments for user: {user_id}")
+        return ExperimentRepository.get_all_experiments(user_id=user_id)

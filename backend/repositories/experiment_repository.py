@@ -104,3 +104,34 @@ class ExperimentRepository:
             except Exception:
                 return []
         return []
+
+    @staticmethod
+    def get_all_experiments(user_id=None) -> list:
+        # 1. MongoDB Read
+        if db_connected and db is not None:
+            try:
+                query = {}
+                if user_id:
+                    query["user_id"] = user_id
+                cursor = db.experiments.find(query).sort("created_at", -1)
+                experiments = list(cursor)
+                for e in experiments:
+                    e.pop("_id", None)
+                return experiments
+            except Exception as e:
+                print(f"Error loading all experiments from MongoDB: {e}")
+
+        # 2. Local JSON Read
+        if os.path.exists(EXPERIMENTS_FILE):
+            try:
+                with open(EXPERIMENTS_FILE, "r") as f:
+                    experiments = json.load(f)
+                filtered = [
+                    e for e in experiments 
+                    if (user_id is None or e.get("user_id") == user_id)
+                ]
+                filtered.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+                return filtered
+            except Exception:
+                return []
+        return []
